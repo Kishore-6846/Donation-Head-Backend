@@ -1,0 +1,97 @@
+[
+  {
+    "_id": "6aacc1d645383e62e2389393",
+    "name": "Dummy Donation Head",
+    "description": "",
+    "status": "Active",
+    "isGlobal": true,
+    "createdBy": "Super Admin",
+    "trustName": "",
+    "trustEmail": "",
+    "hiddenForTrusts": [],
+    "createdAt": "2026-09-18T04:45:10.240Z",
+    "formattedDate": "18-09-2026 10:15am"
+  },
+  {
+    "_id": "6aacbf643cefd08eddd93346",
+    "name": "Hello",
+    "description": "",
+    "status": "Active",
+    "isGlobal": false,
+    "createdBy": "GuruDeva-Trust-001",
+    "trustName": "GuruDeva-Trust-001",
+    "trustEmail": "admin@gurudevatrust.com",
+    "createdAt": "2026-09-18T04:34:44.544Z",
+    "formattedDate": "18-09-2026 10:04am"
+  },
+  {
+    "_id": "6aabd7fdae62ebae9a332913",
+    "name": "Temple Renovation & Heritage Fund",
+    "description": "Updated across all trusts",
+    "status": "Active",
+    "isGlobal": true,
+    "createdBy": "Super Admin",
+    "createdAt": "2026-09-17T12:07:25.146Z",
+    "formattedDate": "17-09-2026 05:37pm"
+  },
+  {
+    "_id": "dh_1",
+    "name": "Anna Chathiram",
+    "description": "Food serving charity and annadhanam",
+    "formattedDate": "08-07-2026 10:46am",
+    "createdAt": "2026-07-08T10:46:00.000Z",
+    "status": "Active",
+    "isGlobal": true,
+    "createdBy": "System"
+  },
+  {
+    "_id": "dh_2",
+    "name": "365 Drive",
+    "description": "Year-round daily support campaign",
+    "formattedDate": "26-06-2025 11:03am",
+    "createdAt": "2025-06-26T11:03:00.000Z",
+    "status": "Active",
+    "isGlobal": true,
+    "createdBy": "System"
+  },
+  {
+    "_id": "dh_3",
+    "name": "Food Drive",
+    "description": "Community food relief distribution",
+    "formattedDate": "26-06-2025 11:03am",
+    "createdAt": "2025-06-26T11:03:00.000Z",
+    "status": "Active",
+    "isGlobal": true,
+    "createdBy": "System"
+  },
+  {
+    "_id": "dh_4",
+    "name": "Fengal Cyclone",
+    "description": "Disaster response and emergency relief",
+    "formattedDate": "06-01-2025 02:43pm",
+    "createdAt": "2025-01-06T14:43:00.000Z",
+    "status": "Active",
+    "isGlobal": true,
+    "createdBy": "System"
+  },
+  {
+    "_id": "dh_5",
+    "name": "Kind",
+    "description": "Material and non-monetary donations",
+    "formattedDate": "26-10-2024 12:22pm",
+    "createdAt": "2024-10-26T12:22:00.000Z",
+    "status": "Active",
+    "isGlobal": true,
+    "createdBy": "System"
+  },
+  {
+    "_id": "dh_6",
+    "name": "General",
+    "description": "General unrestricted charitable fund",
+    "formattedDate": "16-04-2023 10:18am",
+    "createdAt": "2023-04-16T10:18:00.000Z",
+    "status": "Active",
+    "isGlobal": true,
+    "createdBy": "System"
+  }
+]

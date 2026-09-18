@@ -1,0 +1,14 @@
+[
+  {
+    "_id": "notif_1789628076803",
+    "title": "SuperAdmin",
+    "message": "Hi Buddy",
+    "category": "Announcement",
+    "targetAudience": "All Trusts",
+    "actionText": "",
+    "actionLink": "",
+    "publishDate": "17/09/2026",
+    "status": "Published",
+    "createdAt": "2026-09-17T06:54:36.803Z"
+  }
+]

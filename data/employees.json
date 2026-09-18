@@ -1,0 +1,71 @@
+[
+  {
+    "empId": "EMP-001",
+    "name": "Rajesh",
+    "email": "rajest@donationreceipt.in",
+    "phone": "0987654321",
+    "role": "Compliance Auditor",
+    "department": "Compliance",
+    "permissions": [
+      "Manage Users",
+      "View Receipts"
+    ],
+    "status": "Active",
+    "joinedDate": "17/09/2026",
+    "_id": "6aabb3ce9052fdb75094b554",
+    "createdAt": "2026-09-17T09:33:02.076Z",
+    "updatedAt": "2026-09-17T09:33:02.076Z",
+    "__v": 0
+  },
+  {
+    "_id": "emp_1789628226747",
+    "empId": "EMP-004",
+    "name": "Pooja Sundaram Live",
+    "email": "pooja_1789628226709@donationreceipt.in",
+    "phone": "9876543210",
+    "role": "Platform Support Engineer",
+    "department": "Customer Success",
+    "permissions": [
+      "View Dashboard",
+      "Manage Users",
+      "View Reports"
+    ],
+    "status": "Active",
+    "joinedDate": "17/09/2026",
+    "createdAt": "2026-09-17T06:57:06.747Z"
+  },
+  {
+    "_id": "emp_1789628075112",
+    "empId": "EMP-003",
+    "name": "Pooja Sundaram",
+    "email": "pooja_1789628075067@donationreceipt.in",
+    "phone": "9876543210",
+    "role": "Platform Support Engineer",
+    "department": "Customer Success",
+    "permissions": [
+      "View Dashboard",
+      "Manage Users",
+      "View Reports"
+    ],
+    "status": "Active",
+    "joinedDate": "17/09/2026",
+    "createdAt": "2026-09-17T06:54:35.112Z"
+  },
+  {
+    "_id": "emp_1789628069931",
+    "empId": "EMP-002",
+    "name": "Pooja Sundaram",
+    "email": "pooja_1789628069885@donationreceipt.in",
+    "phone": "9876543210",
+    "role": "Platform Support Engineer",
+    "department": "Customer Success",
+    "permissions": [
+      "View Dashboard",
+      "Manage Users",
+      "View Reports"
+    ],
+    "status": "Active",
+    "joinedDate": "17/09/2026",
+    "createdAt": "2026-09-17T06:54:29.931Z"
+  }
+]

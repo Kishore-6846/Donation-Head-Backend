@@ -1,0 +1,483 @@
+[
+  {
+    "_id": "std_receipts_master",
+    "isStandard": true,
+    "title": "Donation Receipts Master Report",
+    "code": "REP-RCPT-MASTER",
+    "category": "Financial Audit",
+    "reportBase": "receipts",
+    "reportBaseLabel": "Donation Receipts Register",
+    "targetTrust": "All Trusts",
+    "financialYear": "2026-2027",
+    "fromDate": "2026-04-01",
+    "toDate": "2026-09-30",
+    "description": "Master audit register of all individual donation receipts with serial nos, PAN, payment mode and 80G tax status.",
+    "status": "Published",
+    "filters": {
+      "donationHead": "All Heads",
+      "donationType": "All Types",
+      "paymentMode": "All Modes",
+      "section80G": "all",
+      "minAmount": ""
+    },
+    "selectedFieldKeys": [
+      "receiptNo",
+      "receiptDate",
+      "donorName",
+      "panNumber",
+      "donationHead",
+      "amount",
+      "paymentMode",
+      "section80G"
+    ],
+    "columns": [
+      {
+        "key": "receiptNo",
+        "label": "Receipt No.",
+        "type": "text"
+      },
+      {
+        "key": "receiptDate",
+        "label": "Receipt Date",
+        "type": "date"
+      },
+      {
+        "key": "donorName",
+        "label": "Donor / Devotee Name",
+        "type": "text"
+      },
+      {
+        "key": "panNumber",
+        "label": "PAN Card Number",
+        "type": "text"
+      },
+      {
+        "key": "donationHead",
+        "label": "Donation Head / Seva",
+        "type": "text"
+      },
+      {
+        "key": "amount",
+        "label": "Amount (₹)",
+        "type": "number"
+      },
+      {
+        "key": "paymentMode",
+        "label": "Payment Mode",
+        "type": "text"
+      },
+      {
+        "key": "section80G",
+        "label": "80G Tax Exemption Status",
+        "type": "text"
+      }
+    ],
+    "dataRows": [],
+    "totalRecords": 2145,
+    "totalVolume": 8450000,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "_id": "std_10bd_statutory",
+    "isStandard": true,
+    "title": "Form 10BD Statutory Tax Report",
+    "code": "REP-10BD-STATUTORY",
+    "category": "Statutory Compliance",
+    "reportBase": "10bd",
+    "reportBaseLabel": "Form 10BD Statutory Tax",
+    "targetTrust": "All Trusts",
+    "financialYear": "2026-2027",
+    "fromDate": "2026-04-01",
+    "toDate": "2026-09-30",
+    "description": "Official Income Tax Form 10BD statement for aggregate donor filings under Section 80G(5)(vi).",
+    "status": "Published",
+    "filters": {
+      "donationHead": "All Heads",
+      "donationType": "All Types",
+      "paymentMode": "All Modes",
+      "section80G": "all",
+      "minAmount": ""
+    },
+    "selectedFieldKeys": [
+      "receiptNo",
+      "receiptDate",
+      "donorName",
+      "panNumber",
+      "address",
+      "donationType",
+      "amount",
+      "paymentMode"
+    ],
+    "columns": [
+      {
+        "key": "receiptNo",
+        "label": "Pre-Ack / Receipt No.",
+        "type": "text"
+      },
+      {
+        "key": "receiptDate",
+        "label": "Issuance Date",
+        "type": "date"
+      },
+      {
+        "key": "donorName",
+        "label": "Donor / Devotee Name",
+        "type": "text"
+      },
+      {
+        "key": "panNumber",
+        "label": "Unique ID (PAN/Aadhaar)",
+        "type": "text"
+      },
+      {
+        "key": "address",
+        "label": "Donor Address",
+        "type": "text"
+      },
+      {
+        "key": "donationType",
+        "label": "Donation Type",
+        "type": "text"
+      },
+      {
+        "key": "amount",
+        "label": "Amount (₹)",
+        "type": "number"
+      },
+      {
+        "key": "paymentMode",
+        "label": "Mode of Receipt",
+        "type": "text"
+      }
+    ],
+    "dataRows": [],
+    "totalRecords": 2145,
+    "totalVolume": 8450000,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "_id": "std_head_collection",
+    "isStandard": true,
+    "title": "Donation Head Wise Collection Report",
+    "code": "REP-HEAD-COLLECTION",
+    "category": "Temple Endowment",
+    "reportBase": "donation-head",
+    "reportBaseLabel": "Donation Head Wise",
+    "targetTrust": "All Trusts",
+    "financialYear": "2026-2027",
+    "fromDate": "2026-04-01",
+    "toDate": "2026-09-30",
+    "description": "Head-wise allocation breakdown across Annadanam, General Corpus, Pooja Services, and Temple Renovations.",
+    "status": "Published",
+    "filters": {
+      "donationHead": "All Heads",
+      "donationType": "All Types",
+      "paymentMode": "All Modes",
+      "section80G": "all",
+      "minAmount": ""
+    },
+    "selectedFieldKeys": [
+      "receiptNo",
+      "receiptDate",
+      "donorName",
+      "donationHead",
+      "amount",
+      "paymentMode"
+    ],
+    "columns": [
+      {
+        "key": "receiptNo",
+        "label": "Receipt No.",
+        "type": "text"
+      },
+      {
+        "key": "receiptDate",
+        "label": "Receipt Date",
+        "type": "date"
+      },
+      {
+        "key": "donorName",
+        "label": "Donor Name",
+        "type": "text"
+      },
+      {
+        "key": "donationHead",
+        "label": "Donation Head / Seva",
+        "type": "text"
+      },
+      {
+        "key": "amount",
+        "label": "Amount (₹)",
+        "type": "number"
+      },
+      {
+        "key": "paymentMode",
+        "label": "Payment Mode",
+        "type": "text"
+      }
+    ],
+    "dataRows": [],
+    "totalRecords": 5,
+    "totalVolume": 8450000,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "_id": "std_donor_directory",
+    "isStandard": true,
+    "title": "Donor Directory & Stewardship Report",
+    "code": "REP-DONOR-DIRECTORY",
+    "category": "Donor Analytics",
+    "reportBase": "donor",
+    "reportBaseLabel": "Donor Directory",
+    "targetTrust": "All Trusts",
+    "financialYear": "2026-2027",
+    "fromDate": "2026-04-01",
+    "toDate": "2026-09-30",
+    "description": "Comprehensive donor database with lifetime donation totals, recurrence metrics, and contact registries.",
+    "status": "Published",
+    "filters": {
+      "donationHead": "All Heads",
+      "donationType": "All Types",
+      "paymentMode": "All Modes",
+      "section80G": "all",
+      "minAmount": ""
+    },
+    "selectedFieldKeys": [
+      "donorName",
+      "phone",
+      "email",
+      "panNumber",
+      "address",
+      "amount"
+    ],
+    "columns": [
+      {
+        "key": "donorName",
+        "label": "Donor / Devotee Name",
+        "type": "text"
+      },
+      {
+        "key": "phone",
+        "label": "Phone Number",
+        "type": "text"
+      },
+      {
+        "key": "email",
+        "label": "Email Address",
+        "type": "text"
+      },
+      {
+        "key": "panNumber",
+        "label": "PAN Card Number",
+        "type": "text"
+      },
+      {
+        "key": "address",
+        "label": "Donor Address",
+        "type": "text"
+      },
+      {
+        "key": "amount",
+        "label": "Total Contribution (₹)",
+        "type": "number"
+      }
+    ],
+    "dataRows": [],
+    "totalRecords": 2145,
+    "totalVolume": 8450000,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "_id": "std_donation_type",
+    "isStandard": true,
+    "title": "Donation Type Classification Matrix",
+    "code": "REP-TYPE-MATRIX",
+    "category": "Financial Audit",
+    "reportBase": "donation-type",
+    "reportBaseLabel": "Donation Type Matrix",
+    "targetTrust": "All Trusts",
+    "financialYear": "2026-2027",
+    "fromDate": "2026-04-01",
+    "toDate": "2026-09-30",
+    "description": "Cross-tabulated breakdown between Corpus Fund, General Donations, and Specified Purpose contributions.",
+    "status": "Published",
+    "filters": {
+      "donationHead": "All Heads",
+      "donationType": "All Types",
+      "paymentMode": "All Modes",
+      "section80G": "all",
+      "minAmount": ""
+    },
+    "selectedFieldKeys": [
+      "receiptNo",
+      "receiptDate",
+      "donorName",
+      "donationType",
+      "amount",
+      "paymentMode"
+    ],
+    "columns": [
+      {
+        "key": "receiptNo",
+        "label": "Receipt No.",
+        "type": "text"
+      },
+      {
+        "key": "receiptDate",
+        "label": "Receipt Date",
+        "type": "date"
+      },
+      {
+        "key": "donorName",
+        "label": "Donor / Devotee Name",
+        "type": "text"
+      },
+      {
+        "key": "donationType",
+        "label": "Donation Type",
+        "type": "text"
+      },
+      {
+        "key": "amount",
+        "label": "Amount (₹)",
+        "type": "number"
+      },
+      {
+        "key": "paymentMode",
+        "label": "Payment Mode",
+        "type": "text"
+      }
+    ],
+    "dataRows": [],
+    "totalRecords": 2145,
+    "totalVolume": 8450000,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "_id": "std_payment_mode",
+    "isStandard": true,
+    "title": "Payment Mode Reconciliation Report",
+    "code": "REP-PAYMENT-RECON",
+    "category": "Financial Audit",
+    "reportBase": "payment-mode",
+    "reportBaseLabel": "Payment Mode Summary",
+    "targetTrust": "All Trusts",
+    "financialYear": "2026-2027",
+    "fromDate": "2026-04-01",
+    "toDate": "2026-09-30",
+    "description": "Bank settlement and channel audit for UPI, NEFT/RTGS, Net Banking, Cheque, and Cash collections.",
+    "status": "Published",
+    "filters": {
+      "donationHead": "All Heads",
+      "donationType": "All Types",
+      "paymentMode": "All Modes",
+      "section80G": "all",
+      "minAmount": ""
+    },
+    "selectedFieldKeys": [
+      "receiptNo",
+      "receiptDate",
+      "donorName",
+      "paymentMode",
+      "paymentDetails",
+      "amount"
+    ],
+    "columns": [
+      {
+        "key": "receiptNo",
+        "label": "Receipt No.",
+        "type": "text"
+      },
+      {
+        "key": "receiptDate",
+        "label": "Receipt Date",
+        "type": "date"
+      },
+      {
+        "key": "donorName",
+        "label": "Donor / Devotee Name",
+        "type": "text"
+      },
+      {
+        "key": "paymentMode",
+        "label": "Payment Mode",
+        "type": "text"
+      },
+      {
+        "key": "paymentDetails",
+        "label": "Payment Details / Ref",
+        "type": "text"
+      },
+      {
+        "key": "amount",
+        "label": "Amount (₹)",
+        "type": "number"
+      }
+    ],
+    "dataRows": [],
+    "totalRecords": 4,
+    "totalVolume": 8450000,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "_id": "std_exec_intelligence",
+    "isStandard": true,
+    "title": "Platform Reports & Executive Intelligence",
+    "code": "REP-EXEC-INTELLIGENCE",
+    "category": "Executive Intelligence",
+    "reportBase": "custom",
+    "reportBaseLabel": "Platform Executive Intelligence",
+    "targetTrust": "Platform Wide",
+    "financialYear": "2026-2027",
+    "fromDate": "2026-04-01",
+    "toDate": "2026-09-30",
+    "description": "Consolidated platform-wide intelligence on trust subscription revenues, overall receipts issued, and growth trends.",
+    "status": "Published",
+    "filters": {
+      "donationHead": "All Heads",
+      "donationType": "All Types",
+      "paymentMode": "All Modes",
+      "section80G": "all",
+      "minAmount": ""
+    },
+    "selectedFieldKeys": [
+      "receiptNo",
+      "receiptDate",
+      "donorName",
+      "amount"
+    ],
+    "columns": [
+      {
+        "key": "receiptNo",
+        "label": "Metric / Identifier",
+        "type": "text"
+      },
+      {
+        "key": "receiptDate",
+        "label": "Period / Date",
+        "type": "date"
+      },
+      {
+        "key": "donorName",
+        "label": "Scope / Category",
+        "type": "text"
+      },
+      {
+        "key": "amount",
+        "label": "Volume / Value (₹)",
+        "type": "number"
+      }
+    ],
+    "dataRows": [],
+    "totalRecords": 1,
+    "totalVolume": 8450000,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+]

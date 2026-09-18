@@ -1,0 +1,31 @@
+[
+  {
+    "name": "MahaRaja-Trust-002",
+    "email": "admin@maharaja-trust.com",
+    "password": "$2a$10$JBcj./JQyLHUIZCu.NI7IeaJNnmsLPSS/FrSvsGOJNGDxR5z9YR4e",
+    "mobile": "2345678901",
+    "trustName": "MahaRaja-Trust-002",
+    "address": "",
+    "state": "",
+    "registrationNo": "REG-002",
+    "panNo": "PAN-002",
+    "fcraNo": "",
+    "section80GRegNo": "80G-002",
+    "website": "",
+    "contactPerson": "Sankara Narayanan",
+    "contactPersonEmail": "",
+    "contactPersonMobile": "",
+    "logo": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "role": "Admin",
+    "plan": "Starter",
+    "status": "Active",
+    "receiptsCount": 0,
+    "joinedDate": "17/09/2026",
+    "isSuperAdmin": false,
+    "_id": "6aab9785e9ac1b5950b5bccd",
+    "createdAt": "2026-09-17T07:32:21.530Z",
+    "updatedAt": "2026-09-17T07:32:21.530Z",
+    "__v": 0,
+    "signature": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+  }
+]
