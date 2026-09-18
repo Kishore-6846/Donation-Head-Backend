@@ -1,5 +1,23 @@
 [
   {
+    "email": "sivahariah638349@gmail.com",
+    "password": "$2a$10$rA7uredBJf2pWHXwbRXoGO6Gd1hd68ISeJDllGauwxhs662/urcM.",
+    "isSuperAdmin": true,
+    "name": "Super Administrator"
+  },
+  {
+    "email": "superadmin@gmail.com",
+    "password": "$2a$10$b2NgoIhtvDR0XENDSkcdj.m5Te9Z2FaE8yKEw//Kcj36B2lUb327u",
+    "isSuperAdmin": true,
+    "name": "Super Administrator"
+  },
+  {
+    "email": "beta_test@trustreports.org",
+    "password": "$2a$10$BCytCRo1ri3zJfqymb56rekV2iXxoYpje.vjNr9kcFoxnWCWvcN1.",
+    "isSuperAdmin": false,
+    "name": "Trust Admin"
+  },
+  {
     "name": "MahaRaja-Trust-002",
     "email": "admin@maharaja-trust.com",
     "password": "$2a$10$JBcj./JQyLHUIZCu.NI7IeaJNnmsLPSS/FrSvsGOJNGDxR5z9YR4e",

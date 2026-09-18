@@ -339,4 +339,98 @@ router.get('/me', async (req, res) => {
   }
 });
 
+// POST /api/auth/change-password - Update user or superadmin password
+router.post('/change-password', async (req, res) => {
+  try {
+    const { email, newPassword, isSuperAdmin } = req.body;
+    let targetEmail = (email || '').trim().toLowerCase();
+
+    // If email not provided in body, attempt to extract from Bearer token
+    if (!targetEmail && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      try {
+        const token = req.headers.authorization.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        targetEmail = (decoded.email || '').trim().toLowerCase();
+      } catch (tErr) {}
+    }
+
+    if (!targetEmail) {
+      return res.status(400).json({ success: false, message: 'User email is required to update password' });
+    }
+
+    if (!newPassword || newPassword.trim().length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword.trim(), salt);
+
+    // 1. Update in MongoDB
+    if (getIsConnected()) {
+      try {
+        let dbUser = await User.findOne({ email: targetEmail });
+        if (dbUser) {
+          dbUser.password = hashedPassword;
+          await dbUser.save();
+        } else {
+          // If default account not in DB yet, create it
+          const isSuper = Boolean(isSuperAdmin || targetEmail.includes('super') || targetEmail === 'admin@donationreceipt.in');
+          await User.create({
+            name: isSuper ? 'Super Administrator' : 'Trust Admin',
+            email: targetEmail,
+            password: hashedPassword,
+            role: isSuper ? 'SuperAdmin' : 'Admin',
+            isSuperAdmin: isSuper,
+            status: 'Active',
+            trustName: isSuper ? 'DONATION RECEIPT SUPER ADMIN' : 'Trust Organization',
+            plan: 'Standard'
+          });
+        }
+      } catch (dbErr) {
+        console.warn('MongoDB password update error:', dbErr.message);
+      }
+    }
+
+    // 2. Update in in-memory map
+    if (registeredUsers.has(targetEmail)) {
+      const u = registeredUsers.get(targetEmail);
+      u.password = hashedPassword;
+      registeredUsers.set(targetEmail, u);
+    } else {
+      registeredUsers.set(targetEmail, {
+        email: targetEmail,
+        password: hashedPassword,
+        isSuperAdmin: Boolean(isSuperAdmin)
+      });
+    }
+
+    // 3. Update in JSON storage file
+    try {
+      const { getCollection, saveCollection } = require('../services/storageService');
+      const fileUsers = getCollection('users', []);
+      const idx = fileUsers.findIndex(u => (u.email || '').toLowerCase().trim() === targetEmail);
+      if (idx !== -1) {
+        fileUsers[idx].password = hashedPassword;
+        saveCollection('users', fileUsers);
+      } else {
+        fileUsers.unshift({
+          email: targetEmail,
+          password: hashedPassword,
+          isSuperAdmin: Boolean(isSuperAdmin),
+          name: isSuperAdmin ? 'Super Administrator' : 'Trust Admin'
+        });
+        saveCollection('users', fileUsers);
+      }
+    } catch (fErr) {}
+
+    return res.json({
+      success: true,
+      message: 'Password updated successfully! You can now log in with your new password.'
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    return res.status(500).json({ success: false, message: 'Server error while updating password' });
+  }
+});
+
 module.exports = router;
