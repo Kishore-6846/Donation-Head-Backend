@@ -1,26 +1,5 @@
 [
   {
-    "_id": "plan_1789640612228",
-    "name": "Premier Pro",
-    "code": "plan-premier",
-    "price": 20000,
-    "billingCycle": "Annual",
-    "validityDays": 365,
-    "receiptLimit": "Unlimited Receipts",
-    "staffUserLimit": "12 Staff Users",
-    "features": [
-      "Unlimited Donation Receipts",
-      "8 Staff User Logins",
-      "WhatsApp Receipt Sharing",
-      "Form No. 10BD Compliance Reports",
-      "80G Tax Exemption Certificates"
-    ],
-    "badge": "Premier Plan Pro",
-    "description": "Premier Plan",
-    "status": "Active",
-    "createdAt": "2026-09-17T10:23:32.228Z"
-  },
-  {
     "_id": "plan_standard",
     "name": "Standard",
     "code": "standard",

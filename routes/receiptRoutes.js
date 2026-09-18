@@ -90,33 +90,30 @@ router.get('/', async (req, res) => {
       page = 1,
       limit = 10,
       trustEmail = '',
-      trustName = ''
+      trustName = '',
+      isSuperAdmin = ''
     } = req.query;
 
-    const superAdminEmails = await getSuperAdminEmails();
-    const isSuperAdminCaller = Boolean(
-      (!trustEmail && !trustName) ||
-      (trustEmail && trustEmail.toLowerCase().includes('superadmin')) ||
-      trustEmail === 'admin@donationreceipt.in' ||
-      superAdminEmails.includes((trustEmail || '').toLowerCase())
-    );
-
+    const isSuper = isSuperAdmin === 'true' || isSuperAdmin === true;
     const conditions = [{ status }];
 
-    // If a specific trust admin requests receipts, strictly isolate receipts to their trust only
-    if (!isSuperAdminCaller && (trustEmail || trustName)) {
+    // If not super admin, strictly isolate receipts to the requesting trust only
+    if (!isSuper) {
       const orClauses = [];
-      if (trustEmail) {
+      if (trustEmail && trustEmail.trim()) {
         const emailRegex = new RegExp(`^${trustEmail.trim()}$`, 'i');
         orClauses.push({ trustEmail: emailRegex });
         orClauses.push({ createdBy: emailRegex });
       }
-      if (trustName) {
+      if (trustName && trustName.trim() && trustName.trim().toLowerCase() !== 'trust organization') {
         const nameRegex = new RegExp(`^${trustName.trim()}$`, 'i');
         orClauses.push({ trustName: nameRegex });
       }
       if (orClauses.length > 0) {
         conditions.push({ $or: orClauses });
+      } else {
+        // Unidentified trust admin cannot view any receipts
+        conditions.push({ _id: null });
       }
     }
 
@@ -154,19 +151,21 @@ router.get('/', async (req, res) => {
     } else {
       let list = getReceipts().filter(r => (r.status || 'Active') === status);
 
-      if (!isSuperAdminCaller && (trustEmail || trustName)) {
+      if (!isSuper) {
         const eLower = (trustEmail || '').toLowerCase().trim();
         const tLower = (trustName || '').toLowerCase().trim();
-        list = list.filter(r => {
-          const matchE = eLower && (
-            (r.trustEmail && r.trustEmail.toLowerCase() === eLower) ||
-            (r.createdBy && r.createdBy.toLowerCase() === eLower)
-          );
-          const matchT = tLower && (
-            r.trustName && r.trustName.toLowerCase() === tLower
-          );
-          return matchE || matchT;
-        });
+        if (eLower || (tLower && tLower !== 'trust organization')) {
+          list = list.filter(r => {
+            const rEmail = (r.trustEmail || '').toLowerCase().trim();
+            const rCreated = (r.createdBy || '').toLowerCase().trim();
+            const rTrust = (r.trustName || '').toLowerCase().trim();
+            const matchEmail = eLower && (rEmail === eLower || rCreated === eLower);
+            const matchTrust = tLower && tLower !== 'trust organization' && (rTrust === tLower);
+            return matchEmail || matchTrust;
+          });
+        } else {
+          list = [];
+        }
       }
 
       if (head && head !== 'All') {

@@ -8,7 +8,7 @@ const { getReceipts } = require('./receiptRoutes');
 const isSuperAdminEmail = (email) => {
   if (!email) return false;
   const e = email.trim().toLowerCase();
-  return e === 'admin@donationreceipt.in' || e.includes('superadmin') || e === 'superadmin@gmail.com';
+  return e.includes('superadmin') || e === 'superadmin@gmail.com';
 };
 
 const extractTrustInfo = (req) => {
