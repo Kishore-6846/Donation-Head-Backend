@@ -84,7 +84,7 @@ const getSuperAdminEmails = async () => {
 router.get('/', async (req, res) => {
   try {
     const {
-      status = 'Active',
+      status,
       search = '',
       head = '',
       page = 1,
@@ -94,8 +94,29 @@ router.get('/', async (req, res) => {
       isSuperAdmin = ''
     } = req.query;
 
-    const isSuper = isSuperAdmin === 'true' || isSuperAdmin === true;
-    const conditions = [{ status }];
+    let isSuper = isSuperAdmin === 'true' || isSuperAdmin === true || isSuperAdmin === '1';
+
+    // Auto-detect SuperAdmin privileges from JWT Bearer token if provided
+    if (!isSuper && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      try {
+        const token = req.headers.authorization.split(' ')[1];
+        const jwt = require('jsonwebtoken');
+        const JWT_SECRET = process.env.JWT_SECRET || 'donation_receipt_secure_secret_2026';
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded && (decoded.isSuperAdmin || (decoded.role && decoded.role.toLowerCase().includes('super')))) {
+          isSuper = true;
+        }
+      } catch (e) {}
+    }
+
+    const conditions = [];
+
+    // Filter by status if specified, or default to Active for non-super trusts
+    if (status && status !== 'All') {
+      conditions.push({ status });
+    } else if (!isSuper && !status) {
+      conditions.push({ status: 'Active' });
+    }
 
     // If not super admin, strictly isolate receipts to the requesting trust only
     if (!isSuper) {
@@ -133,7 +154,7 @@ router.get('/', async (req, res) => {
     }
 
     if (getIsConnected()) {
-      const filter = conditions.length > 1 ? { $and: conditions } : conditions[0];
+      const filter = conditions.length > 1 ? { $and: conditions } : (conditions.length === 1 ? conditions[0] : {});
 
       const total = await DonationReceipt.countDocuments(filter);
       const receipts = await DonationReceipt.find(filter)
@@ -149,7 +170,12 @@ router.get('/', async (req, res) => {
         limit: Number(limit)
       });
     } else {
-      let list = getReceipts().filter(r => (r.status || 'Active') === status);
+      let list = getReceipts();
+      if (status && status !== 'All') {
+        list = list.filter(r => (r.status || 'Active') === status);
+      } else if (!isSuper && !status) {
+        list = list.filter(r => (r.status || 'Active') === 'Active');
+      }
 
       if (!isSuper) {
         const eLower = (trustEmail || '').toLowerCase().trim();
