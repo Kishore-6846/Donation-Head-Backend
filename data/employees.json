@@ -1,5 +1,23 @@
 [
   {
+    "empId": "EMP-005",
+    "name": "Ravi Kumar",
+    "email": "ravikumar23@donationreceipt.com",
+    "phone": "2234567890",
+    "role": "Platform Manager",
+    "department": "Platform Operations",
+    "permissions": [
+      "Manage Users",
+      "View Receipts"
+    ],
+    "status": "Active",
+    "joinedDate": "18/09/2026",
+    "_id": "6aad1e8e829ecbec725f9d0f",
+    "createdAt": "2026-09-18T11:20:46.457Z",
+    "updatedAt": "2026-09-18T11:20:46.457Z",
+    "__v": 0
+  },
+  {
     "empId": "EMP-001",
     "name": "Rajesh",
     "email": "rajest@donationreceipt.in",

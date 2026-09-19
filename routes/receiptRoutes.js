@@ -80,6 +80,140 @@ const getSuperAdminEmails = async () => {
   return emails;
 };
 
+// Helper to update trust receipts count across DB and file storage
+const syncTrustReceiptsCount = async (trustEmail, trustId, trustName) => {
+  try {
+    if (!trustEmail && !trustId && !trustName) return;
+    const cleanEmail = (trustEmail || '').trim().toLowerCase();
+    const cleanId = (trustId || '').toString();
+    const cleanName = (trustName || '').trim();
+
+    if (getIsConnected()) {
+      const orClauses = [];
+      if (cleanEmail) {
+        orClauses.push({ trustEmail: new RegExp(`^${cleanEmail}$`, 'i') });
+        orClauses.push({ createdBy: new RegExp(`^${cleanEmail}$`, 'i') });
+      }
+      if (cleanId && cleanId.match(/^[0-9a-fA-F]{24}$/)) {
+        orClauses.push({ trustId: cleanId });
+      }
+      if (cleanName && cleanName.toLowerCase() !== 'trust organization') {
+        orClauses.push({ trustName: new RegExp(`^${cleanName}$`, 'i') });
+      }
+
+      if (orClauses.length > 0) {
+        const count = await DonationReceipt.countDocuments({
+          $and: [
+            { $or: orClauses },
+            { status: { $ne: 'Inactive' } }
+          ]
+        });
+
+        const userQuery = {
+          $or: [
+            ...(cleanEmail ? [{ email: new RegExp(`^${cleanEmail}$`, 'i') }] : []),
+            ...(cleanId && cleanId.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: cleanId }] : []),
+            ...(cleanName && cleanName.toLowerCase() !== 'trust organization' ? [
+              { trustName: new RegExp(`^${cleanName}$`, 'i') },
+              { name: new RegExp(`^${cleanName}$`, 'i') }
+            ] : [])
+          ]
+        };
+        await User.updateMany(userQuery, { $set: { receiptsCount: count } });
+      }
+    }
+
+    // Also update in file storage if user exists there
+    const users = getCollection('users', []);
+    const fileReceipts = getReceipts().filter(r => (r.status || 'Active') !== 'Inactive');
+    let modified = false;
+    users.forEach(u => {
+      const uEmail = (u.email || '').trim().toLowerCase();
+      const uId = (u._id || u.id || '').toString();
+      const uName = (u.trustName || u.name || '').trim().toLowerCase();
+      if ((cleanEmail && uEmail === cleanEmail) || (cleanId && uId === cleanId) || (cleanName && cleanName.toLowerCase() !== 'trust organization' && uName === cleanName.toLowerCase())) {
+        const count = fileReceipts.filter(r => {
+          const rEmail = (r.trustEmail || '').trim().toLowerCase();
+          const rCreated = (r.createdBy || '').trim().toLowerCase();
+          const rTrust = (r.trustName || '').trim().toLowerCase();
+          return (uEmail && (rEmail === uEmail || rCreated === uEmail)) || (cleanName && rTrust === cleanName.toLowerCase());
+        }).length;
+        u.receiptsCount = count;
+        modified = true;
+      }
+    });
+    if (modified) {
+      saveCollection('users', users);
+    }
+  } catch (e) {
+    console.warn('Error syncing trust receipts count:', e.message);
+  }
+};
+
+// Helper to enrich receipt object with the latest trust admin profile before PDF generation
+const enrichReceiptWithTrustData = async (receipt, req = {}) => {
+  try {
+    let adminUser = null;
+    const body = req.body || {};
+    const query = req.query || {};
+    const headers = req.headers || {};
+    const adminIdentifier = (body.trustEmail || query.trustEmail || query.email || headers['x-trust-email'] || receipt.trustEmail || receipt.createdBy || '').trim();
+    const adminTrustName = (body.trustName || query.trustName || headers['x-trust-name'] || receipt.trustName || '').trim();
+    const adminTrustId = (body.trustId || query.trustId || headers['x-trust-id'] || receipt.trustId || '').trim();
+
+    if (getIsConnected()) {
+      try {
+        const orClauses = [];
+        if (adminTrustId && adminTrustId.match(/^[0-9a-fA-F]{24}$/)) {
+          orClauses.push({ _id: adminTrustId });
+        }
+        if (adminIdentifier && !adminIdentifier.toLowerCase().includes('superadmin')) {
+          orClauses.push({ email: new RegExp(`^${adminIdentifier}$`, 'i') });
+        }
+        if (adminTrustName && adminTrustName.toLowerCase() !== 'trust organization') {
+          orClauses.push({ trustName: new RegExp(`^${adminTrustName}$`, 'i') });
+          orClauses.push({ name: new RegExp(`^${adminTrustName}$`, 'i') });
+        }
+        if (orClauses.length > 0) {
+          adminUser = await User.findOne({ $or: orClauses }).lean();
+        }
+      } catch (e) {}
+    }
+    if (!adminUser) {
+      const allUsers = getUsers();
+      adminUser = allUsers.find(u =>
+        (adminTrustId && (String(u._id) === String(adminTrustId) || String(u.id) === String(adminTrustId))) ||
+        (adminIdentifier && u.email && u.email.toLowerCase() === adminIdentifier.toLowerCase()) ||
+        (adminTrustName && adminTrustName.toLowerCase() !== 'trust organization' && (
+          (u.trustName && u.trustName.toLowerCase() === adminTrustName.toLowerCase()) ||
+          (u.name && u.name.toLowerCase() === adminTrustName.toLowerCase())
+        ))
+      );
+    }
+
+    return {
+      ...receipt,
+      trustName: adminUser?.trustName || adminUser?.name || receipt.trustName || 'Trust Organization',
+      trustAddress: adminUser?.address || receipt.trustAddress || '',
+      trustPhone: adminUser?.mobile || adminUser?.phone || receipt.trustPhone || '',
+      trustEmail: adminUser?.email || receipt.trustEmail || '',
+      trustWebsite: adminUser?.website || receipt.trustWebsite || '',
+      trustRegNo: adminUser?.registrationNo || receipt.trustRegNo || '',
+      trustPan: adminUser?.panNo || receipt.trustPan || '',
+      trust80G: adminUser?.section80GRegNo || adminUser?.reg12ANo || receipt.trust80G || '',
+      trust12A: adminUser?.reg12ANo || adminUser?.registrationNo || receipt.trust12A || '',
+      trust12ADate: adminUser?.reg12ADate || receipt.trust12ADate || '',
+      trust80GDate: adminUser?.reg12ADate || receipt.trust80GDate || '',
+      trustLogo: adminUser?.logo || receipt.trustLogo || '',
+      trustSignature: adminUser?.signature || receipt.trustSignature || '',
+      signatoryName: adminUser?.contactPerson || adminUser?.signatoryName || adminUser?.name || receipt.signatoryName || 'Authorized Signatory',
+      signatoryPan: adminUser?.signatoryPan || adminUser?.panNo || receipt.signatoryPan || ''
+    };
+  } catch (err) {
+    return receipt;
+  }
+};
+
 // GET all receipts (with tab filtering, search, pagination)
 router.get('/', async (req, res) => {
   try {
@@ -95,9 +229,11 @@ router.get('/', async (req, res) => {
     } = req.query;
 
     let isSuper = isSuperAdmin === 'true' || isSuperAdmin === true || isSuperAdmin === '1';
+    let tokenEmail = '';
+    let tokenTrustName = '';
 
-    // Auto-detect SuperAdmin privileges from JWT Bearer token if provided
-    if (!isSuper && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    // Auto-detect SuperAdmin privileges or Trust Admin identity from JWT Bearer token if provided
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
       try {
         const token = req.headers.authorization.split(' ')[1];
         const jwt = require('jsonwebtoken');
@@ -105,9 +241,15 @@ router.get('/', async (req, res) => {
         const decoded = jwt.verify(token, JWT_SECRET);
         if (decoded && (decoded.isSuperAdmin || (decoded.role && decoded.role.toLowerCase().includes('super')))) {
           isSuper = true;
+        } else if (decoded && decoded.email) {
+          tokenEmail = decoded.email;
+          tokenTrustName = decoded.trustName || decoded.name || '';
         }
       } catch (e) {}
     }
+
+    const effectiveTrustEmail = (trustEmail || tokenEmail || '').trim();
+    const effectiveTrustName = (trustName || tokenTrustName || '').trim();
 
     const conditions = [];
 
@@ -121,13 +263,13 @@ router.get('/', async (req, res) => {
     // If not super admin, strictly isolate receipts to the requesting trust only
     if (!isSuper) {
       const orClauses = [];
-      if (trustEmail && trustEmail.trim()) {
-        const emailRegex = new RegExp(`^${trustEmail.trim()}$`, 'i');
+      if (effectiveTrustEmail) {
+        const emailRegex = new RegExp(`^${effectiveTrustEmail}$`, 'i');
         orClauses.push({ trustEmail: emailRegex });
         orClauses.push({ createdBy: emailRegex });
       }
-      if (trustName && trustName.trim() && trustName.trim().toLowerCase() !== 'trust organization') {
-        const nameRegex = new RegExp(`^${trustName.trim()}$`, 'i');
+      if (effectiveTrustName && effectiveTrustName.toLowerCase() !== 'trust organization') {
+        const nameRegex = new RegExp(`^${effectiveTrustName}$`, 'i');
         orClauses.push({ trustName: nameRegex });
       }
       if (orClauses.length > 0) {
@@ -178,8 +320,8 @@ router.get('/', async (req, res) => {
       }
 
       if (!isSuper) {
-        const eLower = (trustEmail || '').toLowerCase().trim();
-        const tLower = (trustName || '').toLowerCase().trim();
+        const eLower = (effectiveTrustEmail || '').toLowerCase().trim();
+        const tLower = (effectiveTrustName || '').toLowerCase().trim();
         if (eLower || (tLower && tLower !== 'trust organization')) {
           list = list.filter(r => {
             const rEmail = (r.trustEmail || '').toLowerCase().trim();
@@ -387,11 +529,12 @@ const handleBulkDownloadZip = async (req, res) => {
     archive.pipe(res);
 
     for (const receipt of matchedReceipts) {
-      const pdfBuffer = await generateReceiptPDFBuffer(receipt);
-      const safeNo = (receipt.receiptNo || 'receipt')
+      const enrichedReceipt = await enrichReceiptWithTrustData(receipt, req);
+      const pdfBuffer = await generateReceiptPDFBuffer(enrichedReceipt);
+      const safeNo = (enrichedReceipt.receiptNo || 'receipt')
         .replace(/[\/\\:]/g, '_')
         .replace(/[^a-zA-Z0-9_-]/g, '_');
-      const safeName = (receipt.donorName || receipt.name || 'donor')
+      const safeName = (enrichedReceipt.donorName || enrichedReceipt.name || 'donor')
         .trim()
         .replace(/[\s\t\n]+/g, '_')
         .replace(/[^a-zA-Z0-9_-]/g, '');
@@ -438,62 +581,7 @@ const handleReceiptPdfStream = async (req, res) => {
       return res.status(404).send('Receipt not found');
     }
 
-    // Lookup corresponding Trust Admin to inject latest profile logo, signature & wordings
-    let adminUser = null;
-    const adminIdentifier = (req.query.trustEmail || req.query.email || req.headers['x-trust-email'] || receipt.trustEmail || receipt.createdBy || '').trim();
-    const adminTrustName = (req.query.trustName || req.headers['x-trust-name'] || receipt.trustName || '').trim();
-    const adminTrustId = (req.query.trustId || req.headers['x-trust-id'] || receipt.trustId || '').trim();
-
-    if (getIsConnected()) {
-      try {
-        const orClauses = [];
-        if (adminTrustId && adminTrustId.match(/^[0-9a-fA-F]{24}$/)) {
-          orClauses.push({ _id: adminTrustId });
-        }
-        if (adminIdentifier && !adminIdentifier.toLowerCase().includes('superadmin')) {
-          orClauses.push({ email: new RegExp(`^${adminIdentifier}$`, 'i') });
-        }
-        if (adminTrustName && adminTrustName.toLowerCase() !== 'trust organization') {
-          orClauses.push({ trustName: new RegExp(`^${adminTrustName}$`, 'i') });
-          orClauses.push({ name: new RegExp(`^${adminTrustName}$`, 'i') });
-        }
-        if (orClauses.length > 0) {
-          adminUser = await User.findOne({ $or: orClauses }).lean();
-        }
-      } catch (e) {}
-    }
-    if (!adminUser) {
-      const allUsers = getUsers();
-      adminUser = allUsers.find(u =>
-        (adminTrustId && (String(u._id) === String(adminTrustId) || String(u.id) === String(adminTrustId))) ||
-        (adminIdentifier && u.email && u.email.toLowerCase() === adminIdentifier.toLowerCase()) ||
-        (adminTrustName && adminTrustName.toLowerCase() !== 'trust organization' && (
-          (u.trustName && u.trustName.toLowerCase() === adminTrustName.toLowerCase()) ||
-          (u.name && u.name.toLowerCase() === adminTrustName.toLowerCase())
-        ))
-      );
-    }
-
-    // Merge latest admin profile details into receipt copy for PDF rendering
-    const mergedReceipt = {
-      ...receipt,
-      trustName: adminUser?.trustName || adminUser?.name || receipt.trustName || 'Trust Organization',
-      trustAddress: adminUser?.address || receipt.trustAddress || '',
-      trustPhone: adminUser?.mobile || adminUser?.phone || receipt.trustPhone || '',
-      trustEmail: adminUser?.email || receipt.trustEmail || '',
-      trustWebsite: adminUser?.website || receipt.trustWebsite || '',
-      trustRegNo: adminUser?.registrationNo || receipt.trustRegNo || '',
-      trustPan: adminUser?.panNo || receipt.trustPan || '',
-      trust80G: adminUser?.section80GRegNo || adminUser?.reg12ANo || receipt.trust80G || '',
-      trust12A: adminUser?.reg12ANo || adminUser?.registrationNo || receipt.trust12A || '',
-      trust12ADate: adminUser?.reg12ADate || receipt.trust12ADate || '',
-      trust80GDate: adminUser?.reg12ADate || receipt.trust80GDate || '',
-      trustLogo: adminUser?.logo || receipt.trustLogo || '',
-      trustSignature: adminUser?.signature || receipt.trustSignature || '',
-      signatoryName: adminUser?.contactPerson || adminUser?.signatoryName || adminUser?.name || receipt.signatoryName || 'Authorized Signatory',
-      signatoryPan: adminUser?.signatoryPan || adminUser?.panNo || receipt.signatoryPan || ''
-    };
-
+    const mergedReceipt = await enrichReceiptWithTrustData(receipt, req);
     return generateReceiptPDF(mergedReceipt, res);
   } catch (error) {
     console.error('Error generating PDF:', error);
@@ -631,6 +719,7 @@ router.post('/', async (req, res) => {
         status: 'Active',
         notes: notes.trim()
       });
+      await syncTrustReceiptsCount(finalTrustEmail, '', finalTrustName);
       return res.status(201).json({ success: true, message: 'Receipt generated successfully', data: receipt });
     } else {
       const receipt = {
@@ -676,6 +765,7 @@ router.post('/', async (req, res) => {
       const currentList = getReceipts();
       currentList.unshift(receipt);
       saveReceipts(currentList);
+      await syncTrustReceiptsCount(finalTrustEmail, '', finalTrustName);
       return res.status(201).json({ success: true, message: 'Receipt generated successfully', data: receipt });
     }
   } catch (error) {
@@ -693,6 +783,7 @@ router.put('/:id', async (req, res) => {
     if (getIsConnected()) {
       const updated = await DonationReceipt.findByIdAndUpdate(id, updateData, { new: true });
       if (!updated) return res.status(404).json({ success: false, message: 'Receipt not found' });
+      await syncTrustReceiptsCount(updated.trustEmail || updated.createdBy || updateData.trustEmail, updated.trustId, updated.trustName || updateData.trustName);
       return res.json({ success: true, message: 'Receipt updated successfully', data: updated });
     } else {
       const currentList = getReceipts();
@@ -700,6 +791,7 @@ router.put('/:id', async (req, res) => {
       if (idx === -1) return res.status(404).json({ success: false, message: 'Receipt not found' });
       currentList[idx] = { ...currentList[idx], ...updateData };
       saveReceipts(currentList);
+      await syncTrustReceiptsCount(currentList[idx].trustEmail || currentList[idx].createdBy, currentList[idx].trustId, currentList[idx].trustName);
       return res.json({ success: true, message: 'Receipt updated successfully', data: currentList[idx] });
     }
   } catch (error) {
@@ -715,6 +807,9 @@ router.put('/:id/status', async (req, res) => {
 
     if (getIsConnected()) {
       const updated = await DonationReceipt.findByIdAndUpdate(id, { status }, { new: true });
+      if (updated) {
+        await syncTrustReceiptsCount(updated.trustEmail || updated.createdBy, updated.trustId, updated.trustName);
+      }
       return res.json({ success: true, message: `Receipt marked as ${status}`, data: updated });
     } else {
       const currentList = getReceipts();
@@ -722,6 +817,7 @@ router.put('/:id/status', async (req, res) => {
       if (idx === -1) return res.status(404).json({ success: false, message: 'Receipt not found' });
       currentList[idx].status = status;
       saveReceipts(currentList);
+      await syncTrustReceiptsCount(currentList[idx].trustEmail || currentList[idx].createdBy, currentList[idx].trustId, currentList[idx].trustName);
       return res.json({ success: true, message: `Receipt marked as ${status}`, data: currentList[idx] });
     }
   } catch (error) {
@@ -734,16 +830,24 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     if (getIsConnected()) {
+      let deleted = null;
       if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
-        await DonationReceipt.findByIdAndDelete(id);
+        deleted = await DonationReceipt.findByIdAndDelete(id);
       } else {
-        await DonationReceipt.findOneAndDelete({ receiptNo: id });
+        deleted = await DonationReceipt.findOneAndDelete({ receiptNo: id });
+      }
+      if (deleted) {
+        await syncTrustReceiptsCount(deleted.trustEmail || deleted.createdBy, deleted.trustId, deleted.trustName);
       }
       return res.json({ success: true, message: 'Receipt deleted successfully' });
     }
     const currentList = getReceipts();
+    const target = currentList.find(r => r._id === id || r.receiptNo === id);
     const filtered = currentList.filter(r => r._id !== id && r.receiptNo !== id);
     saveReceipts(filtered);
+    if (target) {
+      await syncTrustReceiptsCount(target.trustEmail || target.createdBy, target.trustId, target.trustName);
+    }
     return res.json({ success: true, message: 'Receipt deleted successfully' });
   } catch (error) {
     console.error('Error deleting receipt:', error);

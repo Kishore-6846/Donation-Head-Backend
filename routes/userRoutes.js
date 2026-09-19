@@ -13,11 +13,94 @@ const initialUsers = [];
 const getUsers = () => getCollection('users', initialUsers);
 const saveUsers = (list) => saveCollection('users', list);
 
+// Helper to combine DB and File collections without duplicates
+const combineUniqueItems = (dbList = [], fileList = [], keyFn) => {
+  const map = new Map();
+  (fileList || []).forEach(item => {
+    if (!item) return;
+    const key = keyFn(item);
+    if (key) map.set(key, item);
+  });
+  (dbList || []).forEach(item => {
+    if (!item) return;
+    const key = keyFn(item);
+    if (key) map.set(key, item);
+    else map.set(Math.random().toString(), item);
+  });
+  return Array.from(map.values());
+};
+
+const getStaffKey = (s) => (s._id || s.id || s.email || '').toString();
+const getReceiptKey = (r) => (r._id || r.id || r.receiptNo || '').toString();
+
+const matchTrustStaff = (user, staffList) => {
+  const uEmail = (user.email || '').trim().toLowerCase();
+  const uId = (user._id || user.id || '').toString();
+  const uName = (user.trustName || user.name || '').trim().toLowerCase();
+
+  return (staffList || []).filter(s => {
+    if (!s) return false;
+    if (s.status && s.status.toLowerCase() === 'inactive') return false;
+    const sEmail = (s.trustEmail || '').trim().toLowerCase();
+    const sId = (s.trustId || '').toString();
+    const sName = (s.trustName || '').trim().toLowerCase();
+
+    const matchEmail = uEmail && sEmail && sEmail === uEmail;
+    const matchId = uId && sId && sId === uId;
+    const matchName = uName && sName && uName !== 'trust organization' && sName === uName;
+
+    return Boolean(matchEmail || matchId || matchName);
+  }).length;
+};
+
+const matchTrustReceipts = (user, receiptsList) => {
+  const uEmail = (user.email || '').trim().toLowerCase();
+  const uId = (user._id || user.id || '').toString();
+  const uName = (user.trustName || user.name || '').trim().toLowerCase();
+
+  return (receiptsList || []).filter(r => {
+    if (!r) return false;
+    if (r.status && r.status.toLowerCase() === 'inactive') return false;
+
+    const rEmail = (r.trustEmail || '').trim().toLowerCase();
+    const rCreated = (r.createdBy || '').trim().toLowerCase();
+    const rId = (r.trustId || '').toString();
+    const rTrust = (r.trustName || '').trim().toLowerCase();
+
+    const matchEmail = uEmail && (rEmail === uEmail || rCreated === uEmail);
+    const matchId = uId && rId && rId === uId;
+    const matchName = uName && rTrust && uName !== 'trust organization' && rTrust === uName;
+
+    return Boolean(matchEmail || matchId || matchName);
+  }).length;
+};
+
 // GET /api/users - List users (trusts)
 router.get('/', async (req, res) => {
   try {
     const { search, plan, status } = req.query;
     let usersList = null;
+
+    let allDbStaff = [];
+    let allDbReceipts = [];
+
+    if (getIsConnected()) {
+      try {
+        allDbStaff = await Staff.find({}).lean();
+      } catch (sErr) {
+        console.warn('Error fetching allDbStaff in GET /api/users:', sErr.message);
+        allDbStaff = [];
+      }
+      try {
+        allDbReceipts = await DonationReceipt.find({}).lean();
+      } catch (rErr) {
+        console.warn('Error fetching allDbReceipts in GET /api/users:', rErr.message);
+        allDbReceipts = [];
+      }
+    }
+
+    const allStaff = combineUniqueItems(allDbStaff, getCollection('staff', []), getStaffKey);
+    const allReceipts = combineUniqueItems(allDbReceipts, getCollection('receipts', []), getReceiptKey);
 
     if (getIsConnected()) {
       try {
@@ -42,24 +125,11 @@ router.get('/', async (req, res) => {
           ];
         }
         const dbUsers = await User.find(query).sort({ createdAt: -1 }).lean();
-        let allDbStaff = [];
-        try {
-          allDbStaff = await Staff.find({}).lean();
-        } catch (sErr) {
-          console.warn('Error fetching allDbStaff in GET /api/users:', sErr.message);
-          allDbStaff = getCollection('staff', []);
-        }
 
         usersList = dbUsers.map(u => {
-          const uEmail = (u.email || '').trim().toLowerCase();
-          const uId = u._id ? u._id.toString() : '';
-          const uName = (u.trustName || u.name || '').trim().toLowerCase();
-          const matchingStaff = allDbStaff.filter(s =>
-            (s.trustEmail && s.trustEmail.trim().toLowerCase() === uEmail) ||
-            (s.trustId && s.trustId.toString() === uId) ||
-            (s.trustName && s.trustName.trim().toLowerCase() === uName)
-          );
-          const staffCount = matchingStaff.length;
+          const staffCount = matchTrustStaff(u, allStaff);
+          const receiptsCount = matchTrustReceipts(u, allReceipts);
+
           return {
             _id: u._id.toString(),
             name: u.name || u.trustName || 'Trust Organization',
@@ -77,7 +147,7 @@ router.get('/', async (req, res) => {
             fcraNo: u.fcraNo || '',
             section80GRegNo: u.section80GRegNo || '',
             plan: u.plan || 'Standard',
-            receiptsCount: u.receiptsCount || 0,
+            receiptsCount: receiptsCount,
             staffCount: staffCount,
             status: u.status || 'Active',
             joinedDate: u.joinedDate || (u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : 'Today'),
@@ -92,19 +162,17 @@ router.get('/', async (req, res) => {
     }
 
     if (usersList === null) {
-      const allStaff = getCollection('staff', []);
       usersList = getUsers()
         .filter(u => !u.isSuperAdmin && (!u.role || !u.role.toLowerCase().includes('super')))
         .map(u => {
-          const uEmail = (u.email || '').toLowerCase();
-          const uId = (u._id || '').toString();
-          const uName = (u.trustName || u.name || '').toLowerCase();
-          const count = allStaff.filter(s =>
-            (s.trustEmail && s.trustEmail.toLowerCase() === uEmail) ||
-            (s.trustId && s.trustId === uId) ||
-            (s.trustName && s.trustName.toLowerCase() === uName)
-          ).length;
-          return { ...u, staffCount: count || u.staffCount || 0 };
+          const staffCount = matchTrustStaff(u, allStaff);
+          const receiptsCount = matchTrustReceipts(u, allReceipts);
+
+          return {
+            ...u,
+            staffCount: staffCount,
+            receiptsCount: receiptsCount
+          };
         });
     }
 
@@ -167,55 +235,82 @@ router.get('/:id/summary', async (req, res) => {
     const { password, ...safeUser } = user;
 
     // Fetch Receipts for this trust
-    let receipts = [];
+    let dbReceipts = [];
     if (getIsConnected()) {
       try {
-        receipts = await DonationReceipt.find({
-          $or: [
-            { trustEmail: safeUser.email },
-            { createdBy: safeUser.email },
-            { trustName: safeUser.trustName },
-            { trustName: safeUser.name }
-          ]
-        }).sort({ createdAt: -1 }).lean();
+        const orClauses = [];
+        if (safeUser.email) {
+          orClauses.push({ trustEmail: new RegExp(`^${safeUser.email.trim()}$`, 'i') });
+          orClauses.push({ createdBy: new RegExp(`^${safeUser.email.trim()}$`, 'i') });
+        }
+        if (safeUser.trustName && safeUser.trustName.trim().toLowerCase() !== 'trust organization') {
+          orClauses.push({ trustName: new RegExp(`^${safeUser.trustName.trim()}$`, 'i') });
+        }
+        if (safeUser.name && safeUser.name.trim().toLowerCase() !== 'trust organization') {
+          orClauses.push({ trustName: new RegExp(`^${safeUser.name.trim()}$`, 'i') });
+        }
+        if (orClauses.length > 0) {
+          dbReceipts = await DonationReceipt.find({ $or: orClauses }).sort({ createdAt: -1 }).lean();
+        }
       } catch (e) {
         console.warn('Error fetching receipts for trust summary:', e.message);
       }
     }
 
-    if (receipts.length === 0) {
-      const allReceipts = getCollection('receipts', []);
-      receipts = allReceipts.filter(r =>
-        (r.trustEmail && r.trustEmail.toLowerCase() === safeUser.email?.toLowerCase()) ||
-        (r.createdBy && r.createdBy.toLowerCase() === safeUser.email?.toLowerCase()) ||
-        (r.trustName && r.trustName.toLowerCase() === (safeUser.trustName || safeUser.name)?.toLowerCase())
-      );
-    }
+    const allFileReceipts = getCollection('receipts', []);
+    const fileReceipts = allFileReceipts.filter(r => {
+      if (!r) return false;
+      const rEmail = (r.trustEmail || '').trim().toLowerCase();
+      const rCreated = (r.createdBy || '').trim().toLowerCase();
+      const rTrust = (r.trustName || '').trim().toLowerCase();
+      const uEmail = (safeUser.email || '').trim().toLowerCase();
+      const uTrust = (safeUser.trustName || safeUser.name || '').trim().toLowerCase();
+      const matchEmail = uEmail && (rEmail === uEmail || rCreated === uEmail);
+      const matchTrust = uTrust && uTrust !== 'trust organization' && (rTrust === uTrust);
+      return Boolean(matchEmail || matchTrust);
+    });
+
+    const receipts = combineUniqueItems(dbReceipts, fileReceipts, getReceiptKey);
 
     // Fetch Staff for this trust
-    let staffMembers = [];
+    let dbStaffMembers = [];
     if (getIsConnected()) {
       try {
-        staffMembers = await Staff.find({
-          $or: [
-            { trustEmail: safeUser.email },
-            { trustId: safeUser._id ? safeUser._id.toString() : '' },
-            { trustName: safeUser.trustName }
-          ]
-        }).sort({ createdAt: -1 }).lean();
+        const orClauses = [];
+        if (safeUser.email) {
+          orClauses.push({ trustEmail: new RegExp(`^${safeUser.email.trim()}$`, 'i') });
+        }
+        if (safeUser._id) {
+          orClauses.push({ trustId: safeUser._id.toString() });
+        }
+        if (safeUser.trustName && safeUser.trustName.trim().toLowerCase() !== 'trust organization') {
+          orClauses.push({ trustName: new RegExp(`^${safeUser.trustName.trim()}$`, 'i') });
+        }
+        if (orClauses.length > 0) {
+          dbStaffMembers = await Staff.find({ $or: orClauses }).sort({ createdAt: -1 }).lean();
+        }
       } catch (e) {
         console.warn('Error fetching staff for trust summary:', e.message);
       }
     }
 
-    if (staffMembers.length === 0) {
-      const allStaff = getCollection('staff', []);
-      staffMembers = allStaff.filter(s =>
-        (s.trustEmail && s.trustEmail.toLowerCase() === safeUser.email?.toLowerCase()) ||
-        (s.trustId && s.trustId === safeUser._id?.toString()) ||
-        (s.trustName && s.trustName.toLowerCase() === (safeUser.trustName || safeUser.name)?.toLowerCase())
-      );
-    }
+    const allFileStaff = getCollection('staff', []);
+    const fileStaff = allFileStaff.filter(s => {
+      if (!s) return false;
+      const sEmail = (s.trustEmail || '').trim().toLowerCase();
+      const sId = (s.trustId || '').toString();
+      const sName = (s.trustName || '').trim().toLowerCase();
+      const uEmail = (safeUser.email || '').trim().toLowerCase();
+      const uId = (safeUser._id || safeUser.id || '').toString();
+      const uTrust = (safeUser.trustName || safeUser.name || '').trim().toLowerCase();
+
+      const matchEmail = uEmail && sEmail === uEmail;
+      const matchId = uId && sId === uId;
+      const matchTrust = uTrust && uTrust !== 'trust organization' && sName === uTrust;
+      return Boolean(matchEmail || matchId || matchTrust);
+    });
+
+    const staffMembers = combineUniqueItems(dbStaffMembers, fileStaff, getStaffKey);
 
     // Calculate aggregated statistics
     const totalAmount = receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
@@ -325,7 +420,23 @@ router.get('/:id', async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    return res.json({ success: true, data: user });
+
+    let allDbStaff = [];
+    let allDbReceipts = [];
+    if (getIsConnected()) {
+      try { allDbStaff = await Staff.find({}).lean(); } catch (e) {}
+      try { allDbReceipts = await DonationReceipt.find({}).lean(); } catch (e) {}
+    }
+    const allStaff = combineUniqueItems(allDbStaff, getCollection('staff', []), getStaffKey);
+    const allReceipts = combineUniqueItems(allDbReceipts, getCollection('receipts', []), getReceiptKey);
+
+    const safeUser = {
+      ...user,
+      staffCount: matchTrustStaff(user, allStaff),
+      receiptsCount: matchTrustReceipts(user, allReceipts)
+    };
+
+    return res.json({ success: true, data: safeUser });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

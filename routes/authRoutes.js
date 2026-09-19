@@ -229,7 +229,7 @@ router.post('/register', async (req, res) => {
       contactPersonMobile: contactPersonMobile || mobile,
       logo: logo || '',
       role: effectiveRole,
-      plan: 'Standard',
+      plan: req.body.plan || 'Standard',
       status: 'Active',
       receiptsCount: 0,
       joinedDate: formattedDate,
@@ -280,6 +280,7 @@ router.post('/register', async (req, res) => {
       contactPersonMobile: newUser.contactPersonMobile,
       logo: newUser.logo,
       role: newUser.role,
+      plan: newUser.plan,
       isSuperAdmin: newUser.isSuperAdmin,
       trialEndsAt: newUser.trialEndsAt
     };

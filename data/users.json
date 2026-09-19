@@ -1,9 +1,34 @@
 [
   {
+    "name": "Test Dynamic Plan Trust",
+    "email": "test_plan_1789730835724@example.com",
+    "password": "$2a$10$vKt/wwKCIVGBfuY.Uki08OfXBqNHB60yV21Uthiu2JcBo5Kj4DQQi",
+    "mobile": "9876543210",
+    "trustName": "Test Dynamic Plan Trust",
+    "address": "",
+    "state": "Tamil Nadu",
+    "registrationNo": "REG-835916",
+    "panNo": "",
+    "website": "",
+    "contactPerson": "Test Dynamic Plan Trust",
+    "contactPersonEmail": "test_plan_1789730835724@example.com",
+    "contactPersonMobile": "9876543210",
+    "logo": "",
+    "role": "Admin",
+    "plan": "Enterprise",
+    "status": "Active",
+    "receiptsCount": 0,
+    "joinedDate": "18/09/2026",
+    "isSuperAdmin": false,
+    "trialEndsAt": "2026-09-20T11:27:15.915Z",
+    "_id": "6aad2013d9dfd5a39e9e8398"
+  },
+  {
     "email": "admin@gurudevatrust.com",
     "password": "$2a$10$GB9AWBaZyH5.JbRsjcMKZeeX/SL0l3OiaE7liaV4bou9PYG/34TzS",
     "isSuperAdmin": false,
-    "name": "Trust Admin"
+    "name": "Trust Admin",
+    "receiptsCount": 1
   },
   {
     "email": "sivahariah638349@gmail.com",
@@ -61,7 +86,9 @@
     "emailBody": "",
     "receiptPrefix": "",
     "receiptStartNumber": "1",
-    "receiptWatermarkText": ""
+    "receiptWatermarkText": "",
+    "extraStaffUsers": 2,
+    "purchasedStaffUsers": 2
   },
   {
     "_id": "6aab93d730f192389bb13069",
@@ -86,13 +113,14 @@
     "signatoryPan": "TRUST-001",
     "registrationType": "12A",
     "reg12ANo": "Trust-001",
-    "reg12ADate": "",
+    "reg12ADate": "2026-09-19",
     "emailSubject": "",
     "emailBody": "",
     "receiptPrefix": "",
     "receiptStartNumber": "1",
     "receiptWatermarkText": "",
     "role": "Admin",
-    "isSuperAdmin": false
+    "isSuperAdmin": false,
+    "receiptsCount": 1
   }
 ]

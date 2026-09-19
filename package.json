@@ -33,6 +33,7 @@
   },
   "nodemonConfig": {
     "watch": [
+      ".env",
       "server.js",
       "routes",
       "models",

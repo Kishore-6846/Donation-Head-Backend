@@ -144,18 +144,32 @@ const getSuperAdminStats = async (req, res) => {
       status: r.status || 'Active'
     }));
 
-    const recentUsers = usersList.slice(0, 5).map(u => ({
-      _id: (u._id || '').toString(),
-      name: u.name || u.trustName || 'Trust Organization',
-      trustName: u.trustName || u.name || 'Trust Organization',
-      contactPerson: u.contactPerson || u.name || 'Admin',
-      email: u.email || '',
-      mobile: u.mobile || u.phone || '',
-      plan: u.plan || 'Standard',
-      receiptsCount: u.receiptsCount || 0,
-      status: u.status || 'Active',
-      joinedDate: u.joinedDate || (u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : 'Today')
-    }));
+    const recentUsers = usersList.slice(0, 5).map(u => {
+      const uEmail = (u.email || '').trim().toLowerCase();
+      const uId = (u._id || '').toString();
+      const uName = (u.trustName || u.name || '').trim().toLowerCase();
+      const count = (receiptsList || []).filter(r => {
+        if (!r) return false;
+        if (r.status && r.status.toLowerCase() === 'inactive') return false;
+        const rEmail = (r.trustEmail || '').trim().toLowerCase();
+        const rCreated = (r.createdBy || '').trim().toLowerCase();
+        const rTrust = (r.trustName || '').trim().toLowerCase();
+        return (uEmail && (rEmail === uEmail || rCreated === uEmail)) || (uName && uName !== 'trust organization' && rTrust === uName);
+      }).length;
+
+      return {
+        _id: (u._id || '').toString(),
+        name: u.name || u.trustName || 'Trust Organization',
+        trustName: u.trustName || u.name || 'Trust Organization',
+        contactPerson: u.contactPerson || u.name || 'Admin',
+        email: u.email || '',
+        mobile: u.mobile || u.phone || '',
+        plan: u.plan || 'Standard',
+        receiptsCount: count || u.receiptsCount || 0,
+        status: u.status || 'Active',
+        joinedDate: u.joinedDate || (u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : 'Today')
+      };
+    });
 
     const notifications = notifsList.slice(0, 5).map(n => ({
       _id: (n._id || '').toString(),

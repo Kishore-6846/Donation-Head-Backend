@@ -1,1 +1,38 @@
-[]
+[
+  {
+    "_id": "6aae313035c08a05f7f37a4c",
+    "name": "Justin",
+    "email": "justin667@gmail.com",
+    "phone": "5346782532",
+    "role": "Trustee",
+    "status": "Active",
+    "trustEmail": "admin@maharaja-trust.com",
+    "trustId": "6aab9785e9ac1b5950b5bccd",
+    "trustName": "MahaRaja-Trust-002",
+    "createdAt": "2026-09-19T06:52:32.759Z"
+  },
+  {
+    "_id": "6aae2eba35c08a05f7f378fc",
+    "name": "Mukesh S",
+    "email": "mukesh6745@gmail.com",
+    "phone": "7391657824",
+    "role": "Volunteer",
+    "status": "Active",
+    "trustEmail": "admin@maharaja-trust.com",
+    "trustId": "6aab9785e9ac1b5950b5bccd",
+    "trustName": "MahaRaja-Trust-002",
+    "createdAt": "2026-09-19T06:42:02.114Z"
+  },
+  {
+    "_id": "6aad1aa3178a35e5697207b1",
+    "name": "Test Staff 1",
+    "email": "staff1@maharaja.com",
+    "phone": "9876543210",
+    "role": "Staff Member",
+    "status": "Active",
+    "trustEmail": "admin@maharaja-trust.com",
+    "trustId": "",
+    "trustName": "MahaRaja-Trust-002",
+    "createdAt": "2026-09-18T11:04:03.203Z"
+  }
+]

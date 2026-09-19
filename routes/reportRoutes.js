@@ -129,7 +129,7 @@ router.get(['/', '/list', '/summary'], async (req, res) => {
 // Form 10BD compliance data matching exact government filing format
 router.get('/10bd', async (req, res) => {
   try {
-    const { financialYear = '2026-2027', reportType = 'Full Report' } = req.query;
+    const { financialYear = '2026-2027', reportType = 'Full Report', fromDate = '', toDate = '' } = req.query;
     const { trustEmail, trustId, trustName } = extractTrustInfo(req);
     const live = await getLiveReceiptsList(trustEmail, trustId, trustName);
 
@@ -146,8 +146,24 @@ router.get('/10bd', async (req, res) => {
       address: r.address || '',
       donationType: r.donationType || r.type || 'General',
       modeOfReceipt: r.paymentDetails || (r.paymentMode ? `${r.paymentMode}` : 'Electronic modes including account payee cheque/draft'),
-      amount: Number(r.amount || 0).toFixed(2)
+      amount: Number(r.amount || 0).toFixed(2),
+      trustName: r.trustName || r.trust || 'Arulmigu Sivan Trust',
+      trustEmail: r.trustEmail || ''
     }));
+
+    if (fromDate || toDate) {
+      const fromD = parseDateForFilter(fromDate);
+      const toD = parseDateForFilter(toDate);
+
+      allRecords = allRecords.filter(item => {
+        const itemD = parseDateForFilter(item.issuanceDate);
+        if (!itemD || isNaN(itemD.getTime())) return true;
+        if (fromD && !isNaN(fromD.getTime()) && itemD < fromD) return false;
+        if (toD && !isNaN(toD.getTime()) && itemD > toD) return false;
+        return true;
+      });
+      allRecords = allRecords.map((r, i) => ({ ...r, srNo: i + 1 }));
+    }
 
     if (reportType === 'Consolidated') {
       const consolidatedMap = new Map();
@@ -164,6 +180,7 @@ router.get('/10bd', async (req, res) => {
           existing.count += 1;
           existing.totalAmountNum += parseFloat(r.amount) || 0;
           if (!existing.address && r.address) existing.address = r.address;
+          if (!existing.trustName && r.trustName) existing.trustName = r.trustName;
         }
       });
 
@@ -180,7 +197,9 @@ router.get('/10bd', async (req, res) => {
         donationType: c.donationType,
         modeOfReceipt: c.modeOfReceipt,
         amount: c.totalAmountNum.toFixed(2),
-        totalDonationsCount: c.count
+        totalDonationsCount: c.count,
+        trustName: c.trustName || 'Arulmigu Sivan Trust',
+        trustEmail: c.trustEmail || ''
       }));
 
       return res.json({
@@ -228,7 +247,9 @@ router.get('/receipts', async (req, res) => {
       paymentDetails: r.paymentDetails || (r.reference ? `Ref: ${r.reference}` : (r.paymentMode || 'Online/UPI')),
       reference: r.reference || '',
       additionalNotes: r.notes || '',
-      createdBy: r.createdBy || 'Admin'
+      createdBy: r.createdBy || 'Admin',
+      trustName: r.trustName || r.trust || 'Arulmigu Sivan Trust',
+      trustEmail: r.trustEmail || ''
     }));
 
     if (fromDate || toDate) {
@@ -312,10 +333,10 @@ router.get('/payment-mode', async (req, res) => {
 // Detailed Donation Head Report endpoint
 router.get(['/head-report', '/head-reports', '/donation-head-report'], async (req, res) => {
   try {
-    const { donationHead = 'General', fromDate = '', toDate = '' } = req.query;
+    const { donationHead = '', fromDate = '', toDate = '' } = req.query;
     const { trustEmail, trustId, trustName } = extractTrustInfo(req);
     const live = await getLiveReceiptsList(trustEmail, trustId, trustName);
-    const isAllHeads = !donationHead || donationHead === '--Select Donation Head--' || donationHead === 'All' || donationHead === 'General';
+    const isAllHeads = !donationHead || donationHead === '--Select Donation Head--' || donationHead.toLowerCase() === 'all' || donationHead === '';
 
     let allHeadRecords = live
       .filter(r => isAllHeads || (r.donationHead && r.donationHead.toLowerCase().includes(donationHead.toLowerCase())))
@@ -329,7 +350,9 @@ router.get(['/head-report', '/head-reports', '/donation-head-report'], async (re
         address: r.address || '',
         amount: Number(r.amount || 0).toFixed(2),
         reference: r.reference || '',
-        donationDate: formatDateDisplay(r.receiptDate)
+        donationDate: formatDateDisplay(r.receiptDate),
+        trustName: r.trustName || r.trust || 'Arulmigu Sivan Trust',
+        trustEmail: r.trustEmail || ''
       }));
 
     if (fromDate || toDate) {
@@ -347,7 +370,7 @@ router.get(['/head-report', '/head-reports', '/donation-head-report'], async (re
 
     return res.json({
       success: true,
-      donationHead: donationHead || 'General',
+      donationHead: donationHead || 'All',
       fromDate,
       toDate,
       totalEntries: allHeadRecords.length,
@@ -383,7 +406,9 @@ router.get(['/donor-report', '/donor-reports', '/donors'], async (req, res) => {
           paymentMode: r.paymentMode || 'Online / UPI',
           totalAmount: Number(r.amount || 0),
           receiptCount: 1,
-          lastDonationDate: formatDateDisplay(r.receiptDate)
+          lastDonationDate: formatDateDisplay(r.receiptDate),
+          trustName: r.trustName || r.trust || 'Arulmigu Sivan Trust',
+          trustEmail: r.trustEmail || ''
         });
       } else {
         const existing = donorMap.get(nameKey);
@@ -394,6 +419,7 @@ router.get(['/donor-report', '/donor-reports', '/donors'], async (req, res) => {
         if (!existing.address && r.address) existing.address = r.address;
         if (!existing.panNumber && r.panNo) existing.panNumber = r.panNo;
         if (!existing.aadhaarNumber && r.aadhaarNo) existing.aadhaarNumber = r.aadhaarNo;
+        if (!existing.trustName && r.trustName) existing.trustName = r.trustName;
       }
     }
 
@@ -427,10 +453,10 @@ router.get(['/donor-report', '/donor-reports', '/donors'], async (req, res) => {
 // Detailed Donation Type Report endpoint
 router.get(['/type-report', '/type-reports', '/donation-type-report'], async (req, res) => {
   try {
-    const { donationType = 'Voluntary Donation', fromDate = '', toDate = '' } = req.query;
+    const { donationType = '', fromDate = '', toDate = '' } = req.query;
     const { trustEmail, trustId, trustName } = extractTrustInfo(req);
     const live = await getLiveReceiptsList(trustEmail, trustId, trustName);
-    const isAllTypes = !donationType || donationType === '--Select Donation Type--' || donationType === 'All' || donationType === 'Voluntary Donation';
+    const isAllTypes = !donationType || donationType === '--Select Donation Type--' || donationType.toLowerCase() === 'all' || donationType === '';
 
     let allTypeRecords = live
       .filter(r => isAllTypes || (r.donationType && r.donationType.toLowerCase().includes(donationType.toLowerCase())))
@@ -445,7 +471,9 @@ router.get(['/type-report', '/type-reports', '/donation-type-report'], async (re
         address: r.address || '',
         amount: Number(r.amount || 0).toFixed(2),
         reference: r.reference || '',
-        donationDate: formatDateDisplay(r.receiptDate)
+        donationDate: formatDateDisplay(r.receiptDate),
+        trustName: r.trustName || r.trust || 'Arulmigu Sivan Trust',
+        trustEmail: r.trustEmail || ''
       }));
 
     if (fromDate || toDate) {
@@ -463,7 +491,7 @@ router.get(['/type-report', '/type-reports', '/donation-type-report'], async (re
 
     return res.json({
       success: true,
-      donationType: donationType || 'Voluntary Donation',
+      donationType: donationType || 'All',
       fromDate,
       toDate,
       totalEntries: allTypeRecords.length,
@@ -477,10 +505,10 @@ router.get(['/type-report', '/type-reports', '/donation-type-report'], async (re
 // Detailed Payment Mode Report endpoint
 router.get(['/payment-mode-report', '/payment-mode-reports', '/payment-report', '/payment-reports'], async (req, res) => {
   try {
-    const { paymentMode = 'Wallet/UPI', fromDate = '', toDate = '' } = req.query;
+    const { paymentMode = '', fromDate = '', toDate = '' } = req.query;
     const { trustEmail, trustId, trustName } = extractTrustInfo(req);
     const live = await getLiveReceiptsList(trustEmail, trustId, trustName);
-    const isAllModes = !paymentMode || paymentMode === '--Select Payment Mode--' || paymentMode === 'All' || paymentMode === 'Wallet/UPI';
+    const isAllModes = !paymentMode || paymentMode === '--Select Payment Mode--' || paymentMode.toLowerCase() === 'all' || paymentMode === '';
 
     let allModeRecords = live
       .filter(r => {
@@ -500,7 +528,9 @@ router.get(['/payment-mode-report', '/payment-mode-reports', '/payment-report', 
         paymentMode: r.paymentMode || (paymentMode || 'Wallet/UPI'),
         amount: Number(r.amount || 0).toFixed(2),
         reference: r.reference || '',
-        donationDate: formatDateDisplay(r.receiptDate)
+        donationDate: formatDateDisplay(r.receiptDate),
+        trustName: r.trustName || r.trust || 'Arulmigu Sivan Trust',
+        trustEmail: r.trustEmail || ''
       }));
 
     if (fromDate || toDate) {
@@ -534,22 +564,180 @@ router.get('/superadmin', async (req, res) => {
   try {
     const { fromDate, toDate, reportCategory = 'overview' } = req.query;
 
+    // 1. Fetch all registered trust admins
+    let allUsers = [];
+    if (getIsConnected()) {
+      try {
+        const User = require('../models/User');
+        allUsers = await User.find({
+          $and: [
+            { role: { $not: /super/i } },
+            { isSuperAdmin: { $ne: true } }
+          ]
+        }).lean();
+      } catch (e) {
+        console.warn('DB read error for users in reportRoutes:', e.message);
+      }
+    }
+
+    if (!allUsers || allUsers.length === 0) {
+      try {
+        const { getUsers } = require('./userRoutes');
+        allUsers = getUsers().filter(u => !u.isSuperAdmin && (!u.role || !u.role.toLowerCase().includes('super')));
+      } catch (e) {
+        console.warn('Fallback users read error:', e.message);
+      }
+    }
+
+    // 2. Fetch staff members to calculate staff licenses
+    let allStaff = [];
+    if (getIsConnected()) {
+      try {
+        const Staff = require('../models/Staff');
+        allStaff = await Staff.find({}).lean();
+      } catch (e) {}
+    }
+    if (!allStaff || allStaff.length === 0) {
+      try {
+        const { getCollection } = require('../services/storageService');
+        allStaff = getCollection('staff', []);
+      } catch (e) {}
+    }
+
+    // Plan pricing and staff limits map
+    const planConfigMap = {
+      'starter': { name: 'Starter', price: 1999, staffLimit: 1, badge: 'Starter' },
+      'standard': { name: 'Standard', price: 4000, staffLimit: 4, badge: 'Popular' },
+      'advanced': { name: 'Advanced', price: 7000, staffLimit: 9, badge: 'Most Popular' },
+      'enterprise': { name: 'Enterprise', price: 10000, staffLimit: 999, badge: 'Best Value' }
+    };
+
+    // Deduplicate registered admins by email
+    const existingEmails = new Set();
+    const realAdmins = [];
+
+    (allUsers || []).forEach(u => {
+      const email = (u.email || '').toLowerCase().trim();
+      if (!email || existingEmails.has(email)) return;
+      if (isSuperAdminEmail(email)) return;
+      existingEmails.add(email);
+      realAdmins.push(u);
+    });
+
+    // Compute admin subscription revenue records strictly from real registered trusts
+    const adminRevenueList = realAdmins.map((u, idx) => {
+      const uEmail = (u.email || '').toLowerCase().trim();
+      const uId = (u._id || u.id || '').toString();
+      const uName = (u.trustName || u.name || '').toLowerCase().trim();
+
+      // Count staff matching this trust
+      let trustStaffCount = (u.staffCount !== undefined) ? Number(u.staffCount) : 0;
+      if (allStaff && allStaff.length > 0) {
+        const matchedStaff = allStaff.filter(s => {
+          if (!s) return false;
+          const sEmail = (s.trustEmail || s.email || '').toLowerCase().trim();
+          const sCreated = (s.createdBy || '').toLowerCase().trim();
+          const sTrust = (s.trustName || '').toLowerCase().trim();
+          const sId = (s.trustId || '').toString();
+          return (uEmail && (sEmail === uEmail || sCreated === uEmail)) || (uId && sId === uId) || (uName && sTrust === uName);
+        }).length;
+        if (matchedStaff > trustStaffCount) {
+          trustStaffCount = matchedStaff;
+        }
+      }
+
+      const planKey = (u.plan || 'Standard').toLowerCase().trim();
+      const planCfg = planConfigMap[planKey] || { name: u.plan || 'Standard', price: 4000, staffLimit: 4, badge: 'Active' };
+
+      const basePlanPrice = Number(planCfg.price) || 4000;
+      const includedStaff = planCfg.staffLimit;
+      const extraStaff = (includedStaff === 999) ? 0 : Math.max(0, trustStaffCount - includedStaff);
+      const extraStaffRevenue = extraStaff * 500; // ₹500 per extra staff license
+      const totalRevenue = basePlanPrice + extraStaffRevenue;
+
+      const joinedDateStr = u.joinedDate || (u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : '15/01/2026');
+      const validTillStr = u.validTill || '31/03/2027';
+
+      return {
+        _id: uId || `adm_${idx + 1}`,
+        trustName: u.trustName || u.name || 'Trust Organization',
+        contactPerson: u.contactPerson || u.name || 'Admin',
+        email: u.email || '',
+        mobile: u.mobile || u.phone || '9876543210',
+        plan: planCfg.name,
+        planBadge: planCfg.badge,
+        billingCycle: 'Annual',
+        planPrice: basePlanPrice,
+        staffCount: trustStaffCount,
+        includedStaff: includedStaff === 999 ? 'Unlimited' : includedStaff,
+        extraStaff: extraStaff,
+        extraStaffRevenue: extraStaffRevenue,
+        totalRevenue: totalRevenue,
+        paymentGateway: u.paymentGateway || 'Razorpay (Online)',
+        paymentId: u.paymentId || `pay_rzp_${(uId || (idx + 100)).slice(-6)}`,
+        paymentStatus: 'Success',
+        status: u.status || 'Active',
+        joinedDate: joinedDateStr,
+        validTill: validTillStr,
+        isTrial: Boolean(u.trialEndsAt && new Date(u.trialEndsAt) > new Date())
+      };
+    });
+
+    // Compute dynamic aggregate subscription totals from real registered trusts
+    const grandTotalRevenue = adminRevenueList.reduce((sum, a) => sum + a.totalRevenue, 0);
+    const totalAdminsCount = adminRevenueList.length;
+    const activeSubscriptionsCount = adminRevenueList.filter(a => (a.status || '').toLowerCase() === 'active').length;
+
+    // Dynamic Plan Breakdown from real trusts
+    const planGroups = {};
+    adminRevenueList.forEach(a => {
+      const p = a.plan;
+      if (!planGroups[p]) {
+        planGroups[p] = { count: 0, revenue: 0 };
+      }
+      planGroups[p].count += 1;
+      planGroups[p].revenue += a.totalRevenue;
+    });
+
+    const dynamicPlanBreakdown = Object.keys(planGroups).map(p => ({
+      plan: `${p} Plan (₹${(planConfigMap[p.toLowerCase()]?.price || 4000).toLocaleString('en-IN')})`,
+      count: planGroups[p].count,
+      revenue: planGroups[p].revenue,
+      percentage: grandTotalRevenue > 0 ? Number(((planGroups[p].revenue / grandTotalRevenue) * 100).toFixed(1)) : 0
+    }));
+
+    // Dynamic Monthly Revenue from real trusts
+    const monthlyGroups = {};
+    adminRevenueList.forEach(a => {
+      let monthLabel = 'Sep 2026';
+      if (a.joinedDate && a.joinedDate.includes('/')) {
+        const parts = a.joinedDate.split('/');
+        if (parts.length === 3) {
+          const d = new Date(parts[2], parts[1] - 1, parts[0]);
+          if (!isNaN(d.getTime())) {
+            monthLabel = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+          }
+        }
+      }
+      if (!monthlyGroups[monthLabel]) {
+        monthlyGroups[monthLabel] = { month: monthLabel, amount: 0, subscriptions: 0 };
+      }
+      monthlyGroups[monthLabel].amount += a.totalRevenue;
+      monthlyGroups[monthLabel].subscriptions += 1;
+    });
+
+    const dynamicMonthlyRevenue = Object.values(monthlyGroups);
+
     const subscriptionRevenue = {
-      totalRevenue: 228000,
-      monthlyRevenue: [
-        { month: 'Oct 2025', amount: 24000, subscriptions: 4 },
-        { month: 'Nov 2025', amount: 31000, subscriptions: 5 },
-        { month: 'Dec 2025', amount: 38000, subscriptions: 6 },
-        { month: 'Jan 2026', amount: 45000, subscriptions: 7 },
-        { month: 'Feb 2026', amount: 42000, subscriptions: 6 },
-        { month: 'Mar 2026', amount: 48000, subscriptions: 8 }
+      totalRevenue: grandTotalRevenue,
+      totalAdmins: totalAdminsCount,
+      activeSubscriptions: activeSubscriptionsCount,
+      averageRevenuePerTrust: totalAdminsCount > 0 ? Math.round(grandTotalRevenue / totalAdminsCount) : 0,
+      monthlyRevenue: dynamicMonthlyRevenue.length > 0 ? dynamicMonthlyRevenue : [
+        { month: 'Sep 2026', amount: grandTotalRevenue, subscriptions: totalAdminsCount }
       ],
-      planBreakdown: [
-        { plan: 'Standard Plan (₹4,000)', count: 18, revenue: 72000, percentage: 31.6 },
-        { plan: 'Advanced Plan (₹7,000)', count: 14, revenue: 98000, percentage: 43.0 },
-        { plan: 'Enterprise Plan (₹10,000)', count: 5, revenue: 50000, percentage: 21.9 },
-        { plan: 'Starter Plan (₹1,999)', count: 4, revenue: 7996, percentage: 3.5 }
-      ]
+      planBreakdown: dynamicPlanBreakdown,
+      adminRevenueList: adminRevenueList
     };
 
     const receiptsAnalytics = {
@@ -583,16 +771,16 @@ router.get('/superadmin', async (req, res) => {
     }
 
     const usersGrowth = {
-      totalTrusts: 41,
-      activeTrusts: 38,
-      trialTrusts: 3,
+      totalTrusts: totalAdminsCount,
+      activeTrusts: activeSubscriptionsCount,
+      trialTrusts: adminRevenueList.filter(a => a.isTrial).length,
       monthlyRegistrations: [
         { month: 'Oct 2025', count: 5 },
         { month: 'Nov 2025', count: 6 },
         { month: 'Dec 2025', count: 7 },
         { month: 'Jan 2026', count: 8 },
         { month: 'Feb 2026', count: 6 },
-        { month: 'Mar 2026', count: 9 }
+        { month: 'Mar 2026', count: totalAdminsCount }
       ]
     };
 

@@ -117,6 +117,72 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name and email are required' });
     }
 
+    // Check Plan Limits
+    const queryEmail = (trustEmail || '').toLowerCase().trim();
+    let trustUser = null;
+    if (queryEmail || trustId || trustName) {
+      if (getIsConnected()) {
+        try {
+          trustUser = await User.findOne({
+            $or: [
+              ...(queryEmail ? [{ email: queryEmail }] : []),
+              ...(trustId && trustId.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: trustId }] : []),
+              ...(trustName ? [{ trustName }, { name: trustName }] : [])
+            ]
+          }).lean();
+        } catch (e) {}
+      }
+      if (!trustUser) {
+        const diskUsers = getCollection('users', []);
+        trustUser = diskUsers.find(u =>
+          (queryEmail && u.email && u.email.toLowerCase() === queryEmail) ||
+          (trustId && (u._id === trustId || u.id === trustId)) ||
+          (trustName && (u.trustName === trustName || u.name === trustName))
+        );
+      }
+    }
+
+    if (trustUser) {
+      const planName = trustUser.plan || 'Standard';
+      const planLower = planName.toLowerCase();
+      let baseAllowed = 4; // Standard plan default is 4
+      if (planLower.includes('enterprise')) baseAllowed = 999;
+      else if (planLower.includes('advanced')) baseAllowed = 9;
+      else if (planLower.includes('starter')) baseAllowed = 1;
+      else baseAllowed = 4;
+
+      const extraPurchased = Number(trustUser.extraStaffUsers || trustUser.purchasedStaffUsers || 0);
+      const totalAllowed = baseAllowed === 999 ? 999 : (baseAllowed + extraPurchased);
+
+      // Count existing staff
+      let existingCount = 0;
+      if (getIsConnected()) {
+        try {
+          existingCount = await Staff.countDocuments({
+            $or: [
+              ...(queryEmail ? [{ trustEmail: queryEmail }] : []),
+              ...(trustId ? [{ trustId: trustId.toString() }] : []),
+              ...(trustName ? [{ trustName }] : [])
+            ]
+          });
+        } catch (e) {}
+      } else {
+        const allStaff = getStaff();
+        existingCount = allStaff.filter(s =>
+          (queryEmail && s.trustEmail && s.trustEmail.toLowerCase() === queryEmail) ||
+          (trustId && s.trustId === trustId) ||
+          (trustName && s.trustName && s.trustName.toLowerCase() === (trustName || '').toLowerCase())
+        ).length;
+      }
+
+      if (totalAllowed !== 999 && existingCount >= totalAllowed) {
+        return res.status(400).json({
+          success: false,
+          message: `Staff member limit reached (${totalAllowed} allowed on ${planName} plan). Please purchase additional users to add more staff.`
+        });
+      }
+    }
+
     let createdMember = null;
     const memberData = {
       name: name.trim(),
