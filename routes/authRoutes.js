@@ -81,12 +81,33 @@ router.post('/login', async (req, res) => {
     }
 
     // Enforce role authorization if logging into Super Admin console
+    const isSuperUserAccount = user.isSuperAdmin === true || (user.role && user.role.toLowerCase().includes('super'));
+
     if (isSuperRequested) {
-      const isSuperUser = user.isSuperAdmin === true || (user.role && user.role.toLowerCase().includes('super'));
-      if (!isSuperUser) {
+      if (!isSuperUserAccount) {
         return res.status(403).json({
           success: false,
           message: 'Access denied: This account does not have Super Administrator privileges.'
+        });
+      }
+    } else {
+      // Trust Admin portal login checks
+      const userStatus = user.status || 'Active';
+      if (!isSuperUserAccount && (userStatus === 'Pending' || userStatus === 'Pending Approval')) {
+        return res.status(403).json({
+          success: false,
+          isPending: true,
+          status: 'Pending',
+          message: 'Your account registration & payment are received! Your account is currently Pending Approval by the Super Administrator. You will be able to access your admin panel once Super Admin reviews and activates your account.'
+        });
+      }
+
+      if (!isSuperUserAccount && (userStatus === 'Suspended' || userStatus === 'Inactive')) {
+        return res.status(403).json({
+          success: false,
+          isSuspended: true,
+          status: userStatus,
+          message: 'Your account has been deactivated or suspended by Super Admin. Please contact support for assistance.'
         });
       }
     }
@@ -173,6 +194,22 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(regEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address.'
+      });
+    }
+
+    const cleanMobile = (mobile || '').replace(/\D/g, '').slice(0, 10);
+    if (cleanMobile.length !== 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mobile number must be exactly 10 digits.'
+      });
+    }
+
     if (!isSuper && !effectiveTitle) {
       return res.status(400).json({
         success: false,
@@ -230,7 +267,11 @@ router.post('/register', async (req, res) => {
       logo: logo || '',
       role: effectiveRole,
       plan: req.body.plan || 'Standard',
-      status: 'Active',
+      status: isSuper ? 'Active' : (req.body.status || 'Pending'),
+      paymentStatus: req.body.paymentStatus || (isSuper ? 'N/A' : 'Paid'),
+      paymentId: req.body.paymentId || '',
+      orderId: req.body.orderId || '',
+      paidAmount: req.body.paidAmount || 0,
       receiptsCount: 0,
       joinedDate: formattedDate,
       isSuperAdmin: isSuper,
@@ -281,16 +322,21 @@ router.post('/register', async (req, res) => {
       logo: newUser.logo,
       role: newUser.role,
       plan: newUser.plan,
+      status: newUser.status,
+      paymentStatus: newUser.paymentStatus,
+      paymentId: newUser.paymentId,
+      paidAmount: newUser.paidAmount,
       isSuperAdmin: newUser.isSuperAdmin,
       trialEndsAt: newUser.trialEndsAt
     };
 
     return res.status(201).json({
       success: true,
+      isPending: !isSuper,
       message: isSuper
         ? 'Super Admin registration successful!'
-        : 'Registration successful! Your 48-Hour Free Trial has started.',
-      token,
+        : 'Registration and payment received successfully! Your account is currently Pending Approval by the Super Administrator.',
+      token: isSuper ? token : null,
       user: safeUser
     });
   } catch (error) {

@@ -117,6 +117,16 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name and email are required' });
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address' });
+    }
+
+    const cleanPhone = (phone || '').replace(/\D/g, '').slice(0, 10);
+    if (phone && cleanPhone.length !== 10) {
+      return res.status(400).json({ success: false, message: 'Mobile number must be exactly 10 digits' });
+    }
+
     // Check Plan Limits
     const queryEmail = (trustEmail || '').toLowerCase().trim();
     let trustUser = null;

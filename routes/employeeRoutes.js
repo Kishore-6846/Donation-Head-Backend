@@ -153,6 +153,16 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name, email, and role are required' });
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address' });
+    }
+
+    const cleanPhone = (phone || '').replace(/\D/g, '').slice(0, 10);
+    if (phone && cleanPhone.length !== 10) {
+      return res.status(400).json({ success: false, message: 'Mobile number must be exactly 10 digits' });
+    }
+
     const empId = await generateNextEmpId();
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;

@@ -464,6 +464,16 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address' });
+    }
+
+    const cleanMobile = (mobile || '').replace(/\D/g, '').slice(0, 10);
+    if (mobile && cleanMobile.length !== 10) {
+      return res.status(400).json({ success: false, message: 'Mobile number must be exactly 10 digits' });
+    }
+
     const tName = (trustName || name || 'New Trust Organization').trim();
     const today = new Date();
     const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;

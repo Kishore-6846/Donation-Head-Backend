@@ -124,6 +124,7 @@ const getSuperAdminStats = async (req, res) => {
 
     const totalUsers = usersList.length;
     const activeUsers = usersList.filter(u => !u.status || u.status.toLowerCase() === 'active').length;
+    const pendingUsers = usersList.filter(u => u.status && (u.status.toLowerCase() === 'pending' || u.status.toLowerCase().includes('approval'))).length;
 
     const totalEmployees = employeesList.length;
     const activeEmployees = employeesList.filter(e => !e.status || e.status.toLowerCase() === 'active').length;
@@ -191,7 +192,8 @@ const getSuperAdminStats = async (req, res) => {
         },
         users: {
           total: totalUsers,
-          active: activeUsers
+          active: activeUsers,
+          pending: pendingUsers
         },
         employees: {
           total: totalEmployees,
