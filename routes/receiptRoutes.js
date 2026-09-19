@@ -57,6 +57,7 @@ const generateReceiptNo = async (trustPrefix = 'REC') => {
 };
 
 const User = require('../models/User');
+const Certificate = require('../models/Certificate');
 
 const getSuperAdminEmails = async () => {
   const emails = ['superadmin@donationreceipt.in', 'superadmin@gmail.com'];
@@ -191,6 +192,38 @@ const enrichReceiptWithTrustData = async (receipt, req = {}) => {
       );
     }
 
+    // Fetch 80G vault certificates for this trust
+    let certificates = [];
+    if (getIsConnected()) {
+      try {
+        const certClauses = [];
+        if (adminIdentifier) {
+          certClauses.push({ trustEmail: new RegExp(`^${adminIdentifier}$`, 'i') });
+          certClauses.push({ createdBy: new RegExp(`^${adminIdentifier}$`, 'i') });
+        }
+        if (adminTrustName && adminTrustName.toLowerCase() !== 'trust organization') {
+          certClauses.push({ trustName: new RegExp(`^${adminTrustName}$`, 'i') });
+        }
+        if (certClauses.length > 0) {
+          certificates = await Certificate.find({ $or: certClauses }).sort({ createdAt: -1 }).lean();
+        } else {
+          certificates = await Certificate.find().sort({ createdAt: -1 }).lean();
+        }
+      } catch (e) {}
+    }
+    if (!certificates || certificates.length === 0) {
+      const fileCerts = getCollection('certificates', []);
+      certificates = fileCerts.filter(c => {
+        if (adminIdentifier && c.trustEmail && c.trustEmail.toLowerCase() !== adminIdentifier.toLowerCase() && c.createdBy && c.createdBy.toLowerCase() !== adminIdentifier.toLowerCase()) {
+          return false;
+        }
+        return true;
+      });
+      if (certificates.length === 0 && fileCerts.length > 0 && !adminIdentifier) {
+        certificates = fileCerts;
+      }
+    }
+
     return {
       ...receipt,
       trustName: adminUser?.trustName || adminUser?.name || receipt.trustName || 'Trust Organization',
@@ -207,7 +240,8 @@ const enrichReceiptWithTrustData = async (receipt, req = {}) => {
       trustLogo: adminUser?.logo || receipt.trustLogo || '',
       trustSignature: adminUser?.signature || receipt.trustSignature || '',
       signatoryName: adminUser?.contactPerson || adminUser?.signatoryName || adminUser?.name || receipt.signatoryName || 'Authorized Signatory',
-      signatoryPan: adminUser?.signatoryPan || adminUser?.panNo || receipt.signatoryPan || ''
+      signatoryPan: adminUser?.signatoryPan || adminUser?.panNo || receipt.signatoryPan || '',
+      certificates: receipt.certificates || certificates
     };
   } catch (err) {
     return receipt;

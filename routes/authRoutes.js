@@ -203,24 +203,90 @@ router.post('/register', async (req, res) => {
     }
 
     const cleanMobile = (mobile || '').replace(/\D/g, '').slice(0, 10);
-    if (cleanMobile.length !== 10) {
+    if (!/^[6-9]\d{9}$/.test(cleanMobile)) {
       return res.status(400).json({
         success: false,
-        message: 'Mobile number must be exactly 10 digits.'
+        message: 'Mobile number must be a valid 10-digit number starting with 6, 7, 8, or 9.'
       });
     }
 
-    if (!isSuper && !effectiveTitle) {
+    if (contactPersonMobile) {
+      const cleanContactMobile = (contactPersonMobile || '').replace(/\D/g, '').slice(0, 10);
+      if (!/^[6-9]\d{9}$/.test(cleanContactMobile)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Contact Person Mobile must be a valid 10-digit number starting with 6, 7, 8, or 9.'
+        });
+      }
+    }
+
+    if (contactPerson && !/^[a-zA-Z\s]+$/.test(contactPerson.trim())) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide your Trust / NGO Name'
+        message: 'Contact Person name must contain only letters and spaces.'
       });
     }
 
-    if (password.length < 6) {
+    if (!isSuper) {
+      if (!effectiveTitle) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide your Trust / NGO Name'
+        });
+      }
+      if (!registrationNo || !registrationNo.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Trust / NGO Registration Number is required.'
+        });
+      }
+      if (!panNo || !panNo.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Trust / NGO PAN Number is required.'
+        });
+      }
+    }
+
+    if (panNo && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(panNo.trim().toUpperCase())) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide a password of at least 6 characters'
+        message: 'PAN number must be a valid 10-character alphanumeric PAN without special characters (e.g. ABCDE1234F).'
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters.'
+      });
+    }
+
+    if (!/[A-Z]/.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain at least one uppercase letter (A-Z).'
+      });
+    }
+
+    if (!/[a-z]/.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain at least one lowercase letter (a-z).'
+      });
+    }
+
+    if (!/[0-9]/.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain at least one number (0-9).'
+      });
+    }
+
+    if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain at least one special character (!@#$%^&*...).'
       });
     }
 
@@ -405,8 +471,24 @@ router.post('/change-password', async (req, res) => {
       return res.status(400).json({ success: false, message: 'User email is required to update password' });
     }
 
-    if (!newPassword || newPassword.trim().length < 6) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
+    if (!newPassword || newPassword.trim().length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' });
+    }
+
+    if (!/[A-Z]/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: 'Password must contain at least one uppercase letter (A-Z).' });
+    }
+
+    if (!/[a-z]/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: 'Password must contain at least one lowercase letter (a-z).' });
+    }
+
+    if (!/[0-9]/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: 'Password must contain at least one number (0-9).' });
+    }
+
+    if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: 'Password must contain at least one special character (!@#$%^&*...).' });
     }
 
     const salt = await bcrypt.genSalt(10);
