@@ -1,17 +1,5 @@
 [
   {
-    "_id": "6ab1075907e897c5d08055a2",
-    "name": "Kishore S",
-    "email": "sivaharish638345@gmail.com",
-    "phone": "7876786286",
-    "role": "Tester",
-    "status": "Active",
-    "trustEmail": "admin@maharaja-trust.com",
-    "trustId": "6aab9785e9ac1b5950b5bccd",
-    "trustName": "MahaRaja-Trust",
-    "createdAt": "2026-09-21T10:30:49.709Z"
-  },
-  {
     "_id": "staff_1789983983469",
     "name": "kishore",
     "email": "kumaravelu6746@gmail.com",

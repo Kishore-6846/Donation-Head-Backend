@@ -5,7 +5,6 @@ const roleSchema = new mongoose.Schema(
     roleName: {
       type: String,
       required: true,
-      unique: true,
       trim: true
     },
     description: {
@@ -19,6 +18,18 @@ const roleSchema = new mongoose.Schema(
     created: {
       type: String,
       default: ''
+    },
+    trustEmail: {
+      type: String,
+      default: ''
+    },
+    trustName: {
+      type: String,
+      default: ''
+    },
+    trustId: {
+      type: String,
+      default: ''
     }
   },
   {
@@ -26,4 +37,5 @@ const roleSchema = new mongoose.Schema(
   }
 );
 
+// Compound index for role per trust if needed, or non-unique so MongoDB never blocks adding roles
 module.exports = mongoose.models.Role || mongoose.model('Role', roleSchema);
