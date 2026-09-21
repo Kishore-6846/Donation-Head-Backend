@@ -154,17 +154,14 @@ function renderReceiptPages(doc, receipt) {
     }
   }
 
-  // Organization Titles (cleanly positioned beside logo if present, else centered across header)
-  const headerTextX = logoDrawn ? (boxX + 75) : boxX;
-  const headerTextW = logoDrawn ? (boxW - 85) : boxW;
+  // Organization Titles (cleanly centered across header)
+  doc.fontSize(13.5).font('Helvetica-Bold').fillColor('#000000')
+     .text(trustName.toUpperCase(), boxX, boxY + 10, { width: boxW, align: 'center' });
 
-  doc.fontSize(13.5).font('Helvetica-Bold')
-     .text(trustName.toUpperCase(), headerTextX, boxY + 12, { width: headerTextW, align: 'center' });
-
-  doc.fontSize(8).font('Helvetica')
-     .text(trustAddress, headerTextX, boxY + 28, { width: headerTextW, align: 'center' })
-     .text(`Phone: ${trustPhone}   Email: ${trustEmail}`, headerTextX, boxY + 39, { width: headerTextW, align: 'center' })
-     .text(`Website: ${trustWebsite}`, headerTextX, boxY + 50, { width: headerTextW, align: 'center' });
+  doc.fontSize(8).font('Helvetica').fillColor('#000000')
+     .text(trustAddress || '', boxX, boxY + 26, { width: boxW, align: 'center' })
+     .text(`Phone: ${trustPhone || ''}   Email: ${trustEmail || ''}`, boxX, boxY + 37, { width: boxW, align: 'center' })
+     .text(`Website: ${trustWebsite || ''}`, boxX, boxY + 48, { width: boxW, align: 'center' });
 
   // Divider Line 1
   const d1 = boxY + 66;
@@ -177,7 +174,7 @@ function renderReceiptPages(doc, receipt) {
            + doc.font('Helvetica-Bold').fontSize(8.5).widthOfString(panVal || 'N/A');
   const startX1 = Math.max(boxX + 10, boxX + (boxW - w1) / 2);
 
-  doc.fontSize(8.5).font('Helvetica')
+  doc.fontSize(8.5).font('Helvetica').fillColor('#000000')
      .text('Regd. No.: ', startX1, d1 + 6, { continued: true })
      .font('Helvetica-Bold').text(regdVal || 'N/A', { continued: true })
      .font('Helvetica').text('       PAN No.: ', { continued: true })
@@ -188,7 +185,7 @@ function renderReceiptPages(doc, receipt) {
            + doc.font('Helvetica-Bold').fontSize(8.5).widthOfString(itVal || 'N/A');
   const startX2 = Math.max(boxX + 10, boxX + (boxW - w2) / 2);
 
-  doc.fontSize(8.5).font('Helvetica')
+  doc.fontSize(8.5).font('Helvetica').fillColor('#000000')
      .text(itLabel, startX2, d1 + 18, { continued: true })
      .font('Helvetica-Bold').text(itVal || 'N/A', { continued: false });
 
@@ -198,7 +195,7 @@ function renderReceiptPages(doc, receipt) {
 
   // --- Title: Donation Receipt ---
   const titleY = d2 + 8;
-  doc.fontSize(11).font('Helvetica-Bold').text('Donation Receipt', boxX, titleY, { width: boxW, align: 'center', underline: true });
+  doc.fontSize(11).font('Helvetica-Bold').fillColor('#000000').text('Donation Receipt', boxX, titleY, { width: boxW, align: 'center', underline: true });
 
   // --- Dynamic Watermark in Center Background ---
   const watermarkWords = trustName.trim().split(/\s+/);
@@ -226,7 +223,7 @@ function renderReceiptPages(doc, receipt) {
     const endX = extendToRight ? rightMargin : (x + width);
     const valWidth = endX - valX;
     if (val) {
-      doc.font('Helvetica-Bold').text(String(val), valX, y, { width: valWidth, ellipsis: true });
+      doc.font('Helvetica-Bold').fillColor('#000000').text(String(val), valX, y, { width: valWidth, ellipsis: true });
     }
     doc.moveTo(valX, y + 10).lineTo(endX, y + 10).lineWidth(0.7).stroke('#000000');
   };
@@ -266,15 +263,52 @@ function renderReceiptPages(doc, receipt) {
   drawUnderlinedField('Donation Date: ', receiptDate, boxX + 16, curY, 150);
   drawUnderlinedField('Payment Details: ', paymentDetails, boxX + 175, curY, 0, true);
 
-  // --- Bottom: Bordered Amount Box & Thank You ---
+  // --- Bottom: Bordered Amount Box, Centered Thank You & For Trust Name / Signature ---
   const bY = boxY + boxH - 44;
+  const formattedAmount = !isNaN(amount) && amount > 0 ? Number(amount).toFixed(2) : '0.00';
   doc.rect(boxX + 16, bY, 125, 28).lineWidth(0.9).stroke('#000000');
-  doc.fontSize(10.5).font('Helvetica-Bold').text(`Rs. ${amount}/-`, boxX + 22, bY + 8);
+  doc.fontSize(10.5).font('Helvetica-Bold').fillColor('#000000').text(`Rs. ${formattedAmount}/-`, boxX + 22, bY + 8);
 
-  // Thank You centered in the remaining right area
-  const thankX = boxX + 141;
-  const thankW = rightMargin - thankX;
-  doc.fontSize(11).font('Helvetica-Bold').text('Thank You', thankX, bY + 8, { width: thankW, align: 'center' });
+  // 1. Thank You centered horizontally in the bottom area
+  doc.fontSize(10.5).font('Helvetica-Bold').fillColor('#000000')
+     .text('Thank You', boxX, bY + 10, { width: boxW, align: 'center' });
+
+  // 2. For Trust Name (Right aligned above signature - positioned higher)
+  const forTrustY = bY - 60;
+  const forTrustWidth = rightMargin - (boxX + 230);
+  doc.fontSize(9.5).font('Helvetica-Bold').fillColor('#000000')
+     .text(`For ${trustName.toUpperCase()}`, boxX + 230, forTrustY, { width: forTrustWidth, align: 'right' });
+
+  // 3. Signature label & Signature Image or Name
+  const sigY = bY + 8;
+  doc.fontSize(8.5).font('Helvetica').fillColor('#000000')
+     .text('Signature: ', boxX + 340, sigY);
+
+  let page1SigDrawn = false;
+  const signatureRaw = receipt.trustSignature || receipt.signature;
+  if (signatureRaw && typeof signatureRaw === 'string') {
+    try {
+      let base64Data = signatureRaw;
+      if (base64Data.includes(',')) {
+        base64Data = base64Data.split(',')[1];
+      }
+      if (base64Data && base64Data.trim().length > 50) {
+        const sigBuffer = Buffer.from(base64Data.trim(), 'base64');
+        doc.image(sigBuffer, boxX + 395, sigY - 14, { fit: [95, 32] });
+        page1SigDrawn = true;
+      }
+    } catch (e) {
+      console.warn('Could not render base64 trustSignature on page 1:', e.message);
+    }
+  }
+
+  if (!page1SigDrawn) {
+    const adminSignatory = signatoryName || receipt.signatoryName || 'Authorized Signatory';
+    doc.save();
+    doc.fontSize(9.5).font('Helvetica-Oblique').fillColor('#000000')
+       .text(adminSignatory, boxX + 390, sigY, { width: 130, align: 'left' });
+    doc.restore();
+  }
 
   // ================= PAGE 2: VERIFICATION & STATUTORY NOTE =================
   const shouldAttachVerification =
@@ -294,30 +328,37 @@ function renderReceiptPages(doc, receipt) {
     doc.rect(boxX, vY, boxW, vH).lineWidth(1).stroke('#000000');
 
     // Title
-    doc.fontSize(10.5).font('Helvetica-Bold').text('VERIFICATION', boxX, vY + 12, { width: boxW, align: 'center', underline: true });
+    doc.fontSize(10.5).font('Helvetica-Bold').fillColor('#000000').text('VERIFICATION', boxX, vY + 12, { width: boxW, align: 'center', underline: true });
 
-    // Paragraph Text
-    const declarationText =
-      `I, ${signatoryName || 'Authorized Signatory'}${signatoryFather ? ` son/daughter/wife of ${signatoryFather}` : ''}, solemnly declare ` +
-      'that to the best of my knowledge and belief, the information given in the certificate is correct and ' +
-      'complete and is in accordance with the provisions of the Income- Tax Act, 1961. I further declare that ' +
-      'I am making this certificate in my capacity as Authorized Signatory and I am also competent to issue this ' +
-      `certificate. I am holding PAN ${signatoryPan || 'N/A'}`;
-
-    doc.fontSize(8.5).font('Helvetica').text(declarationText, boxX + 16, vY + 34, {
+    // Paragraph Text with Bold Dynamic Fields
+    doc.fontSize(8.5).fillColor('#000000');
+    doc.font('Helvetica').text('I, ', boxX + 16, vY + 34, {
+      continued: true,
       width: boxW - 32,
       align: 'justify',
       lineGap: 3.5
     });
+    doc.font('Helvetica-Bold').text(signatoryName || 'Authorized Signatory', { continued: true });
+    
+    if (signatoryFather && String(signatoryFather).trim()) {
+      doc.font('Helvetica').text(' son/daughter/wife of ', { continued: true });
+      doc.font('Helvetica-Bold').text(String(signatoryFather).trim(), { continued: true });
+    }
+    
+    doc.font('Helvetica').text(
+      ', solemnly declare that to the best of my knowledge and belief, the information given in the certificate is correct and complete and is in accordance with the provisions of the Income- Tax Act, 1961. I further declare that I am making this certificate in my capacity as Authorized Signatory and I am also competent to issue this certificate. I am holding PAN ',
+      { continued: true }
+    );
+    doc.font('Helvetica-Bold').text(signatoryPan || 'N/A', { continued: false });
 
     // Date and Signature
     const sY = vY + vH - 34;
-    doc.fontSize(8.5).font('Helvetica-Bold').text(`Date: ${receiptDate}`, boxX + 16, sY);
+    doc.fontSize(8.5).font('Helvetica').fillColor('#000000').text('Date: ', boxX + 16, sY, { continued: true })
+       .font('Helvetica-Bold').fillColor('#000000').text(receiptDate || 'N/A');
 
-    doc.text('Signature: ', boxX + 330, sY);
+    doc.fontSize(8.5).font('Helvetica').fillColor('#000000').text('Signature: ', boxX + 330, sY);
 
     let sigDrawn = false;
-    const signatureRaw = receipt.trustSignature || receipt.signature;
     if (signatureRaw && typeof signatureRaw === 'string') {
       try {
         let base64Data = signatureRaw;
@@ -330,17 +371,19 @@ function renderReceiptPages(doc, receipt) {
           sigDrawn = true;
         }
       } catch (e) {
-        console.warn('Could not render base64 trustSignature:', e.message);
+        console.warn('Could not render base64 trustSignature on page 2:', e.message);
       }
     }
 
     // If this specific admin has not uploaded a signature photo, display their own name dynamically
     if (!sigDrawn) {
       const adminSignatory = signatoryName || receipt.signatoryName || 'Authorized Signatory';
-      doc.fontSize(10).font('Helvetica-Oblique').fillColor('#0f172a')
+      doc.save();
+      doc.fontSize(10).font('Helvetica-Oblique').fillColor('#000000')
          .text(adminSignatory, boxX + 380, sY - 4, { width: 130, align: 'center' });
-      doc.fontSize(7.5).font('Helvetica').fillColor('#64748b')
+      doc.fontSize(7.5).font('Helvetica').fillColor('#000000')
          .text('(Authorized Signatory)', boxX + 380, sY + 9, { width: 130, align: 'center' });
+      doc.restore();
     }
 
     // Box 2: Statutory Exemption Box
@@ -349,24 +392,24 @@ function renderReceiptPages(doc, receipt) {
     doc.rect(boxX, eY, boxW, eH).lineWidth(1).stroke('#000000');
 
     // Row 1 of Box 2: 3 Columns
-    doc.fontSize(8).font('Helvetica-Bold').text('PAN: ', boxX + 16, eY + 12, { continued: true })
-       .font('Helvetica').text(panVal);
+    doc.fontSize(8).font('Helvetica').fillColor('#000000').text('PAN: ', boxX + 16, eY + 12, { continued: true })
+       .font('Helvetica-Bold').fillColor('#000000').text(panVal || 'N/A');
 
-    doc.fontSize(8).font('Helvetica-Bold').text('12A Regn No.: ', boxX + 180, eY + 12, { continued: true })
-       .font('Helvetica').text(reg12A);
+    doc.fontSize(8).font('Helvetica').fillColor('#000000').text('12A Regn No.: ', boxX + 180, eY + 12, { continued: true })
+       .font('Helvetica-Bold').fillColor('#000000').text(reg12A || 'N/A');
 
-    doc.fontSize(8).font('Helvetica-Bold').text('Dated: ', boxX + 370, eY + 12, { continued: true })
-       .font('Helvetica').text(reg12ADate);
+    doc.fontSize(8).font('Helvetica').fillColor('#000000').text('Dated: ', boxX + 370, eY + 12, { continued: true })
+       .font('Helvetica-Bold').fillColor('#000000').text(reg12ADate || 'N/A');
 
     // Row 2 of Box 2: 2 Columns
-    doc.fontSize(8).font('Helvetica-Bold').text('80G Regn No.: ', boxX + 16, eY + 28, { continued: true })
-       .font('Helvetica').text(itVal);
+    doc.fontSize(8).font('Helvetica').fillColor('#000000').text('80G Regn No.: ', boxX + 16, eY + 28, { continued: true })
+       .font('Helvetica-Bold').fillColor('#000000').text(itVal || 'N/A');
 
-    doc.fontSize(8).font('Helvetica-Bold').text('Dated: ', boxX + 180, eY + 28, { continued: true })
-       .font('Helvetica').text(reg80GDate);
+    doc.fontSize(8).font('Helvetica').fillColor('#000000').text('Dated: ', boxX + 180, eY + 28, { continued: true })
+       .font('Helvetica-Bold').fillColor('#000000').text(reg80GDate || 'N/A');
 
     // Row 3 of Box 2: Note
-    doc.fontSize(8).font('Helvetica').text(
+    doc.fontSize(8).font('Helvetica').fillColor('#000000').text(
       'Charitable Institutions are not required to affix revenue stamp on receipt under schedule | ART - 53 exemption(b) of the Indian Stamp Act.',
       boxX + 16,
       eY + 48,

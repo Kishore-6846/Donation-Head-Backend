@@ -551,10 +551,18 @@ router.put('/:id', async (req, res) => {
       try {
         if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
           updated = await User.findByIdAndUpdate(id, { $set: updates }, { new: true }).lean();
-        } else {
-          updated = await User.findOneAndUpdate({ $or: [{ _id: id }, { email: id }] }, { $set: updates }, { new: true }).lean();
         }
-      } catch (e) {}
+        if (!updated) {
+          const cleanEmail = decodeURIComponent(id).trim();
+          updated = await User.findOneAndUpdate(
+            { email: new RegExp(`^${cleanEmail}$`, 'i') },
+            { $set: updates },
+            { new: true }
+          ).lean();
+        }
+      } catch (e) {
+        console.warn('DB error in PUT /api/users/:id:', e.message);
+      }
     }
 
     const currentUsers = getUsers();
