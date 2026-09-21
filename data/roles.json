@@ -1,1 +1,27 @@
-[]
+[
+  {
+    "_id": "6ab115153441cb69be04fa86",
+    "roleName": "Accountant",
+    "description": "",
+    "permissions": {
+      "donationHead": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false,
+        "download": false
+      },
+      "donationReceipt": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false,
+        "download": false
+      }
+    },
+    "created": "21-09-2026 16:59:25",
+    "trustEmail": "admin@maharaja-trust.com",
+    "trustName": "MahaRaja-Trust",
+    "trustId": "6aab9785e9ac1b5950b5bccd"
+  }
+]
