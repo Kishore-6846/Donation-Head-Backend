@@ -25,7 +25,8 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { roleName, description = '', permissions = {} } = req.body;
-    if (!roleName) return res.status(400).json({ success: false, message: 'Role Name is required' });
+    const cleanRoleName = (roleName || '').replace(/[^a-zA-Z\s]/g, '').trim();
+    if (!cleanRoleName) return res.status(400).json({ success: false, message: 'Role Name is required and must contain letters and spaces only' });
 
     const now = new Date();
     const day = String(now.getDate()).padStart(2, '0');
@@ -38,7 +39,7 @@ router.post('/', async (req, res) => {
 
     if (getIsConnected()) {
       const role = await Role.create({
-        roleName: roleName.trim(),
+        roleName: cleanRoleName,
         description: description.trim(),
         permissions,
         created: dateStr
@@ -47,7 +48,7 @@ router.post('/', async (req, res) => {
     } else {
       const newRole = {
         _id: `role_${Date.now()}`,
-        roleName: roleName.trim(),
+        roleName: cleanRoleName,
         description: description.trim(),
         permissions,
         created: dateStr
@@ -90,12 +91,13 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const { roleName, description, permissions } = req.body;
     let updated = null;
+    const cleanRoleName = roleName !== undefined ? (roleName || '').replace(/[^a-zA-Z\s]/g, '').trim() : undefined;
 
     if (getIsConnected()) {
       try {
         updated = await Role.findByIdAndUpdate(
           id,
-          { $set: { ...(roleName ? { roleName: roleName.trim() } : {}), ...(description !== undefined ? { description } : {}), ...(permissions ? { permissions } : {}) } },
+          { $set: { ...(cleanRoleName !== undefined ? { roleName: cleanRoleName } : {}), ...(description !== undefined ? { description } : {}), ...(permissions ? { permissions } : {}) } },
           { new: true }
         ).lean();
       } catch (e) {}
@@ -106,7 +108,7 @@ router.put('/:id', async (req, res) => {
     if (idx !== -1) {
       current[idx] = {
         ...current[idx],
-        ...(roleName ? { roleName: roleName.trim() } : {}),
+        ...(cleanRoleName !== undefined ? { roleName: cleanRoleName } : {}),
         ...(description !== undefined ? { description } : {}),
         ...(permissions ? { permissions } : {})
       };

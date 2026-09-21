@@ -250,7 +250,12 @@ router.get('/:id/summary', async (req, res) => {
           orClauses.push({ trustName: new RegExp(`^${safeUser.name.trim()}$`, 'i') });
         }
         if (orClauses.length > 0) {
-          dbReceipts = await DonationReceipt.find({ $or: orClauses }).sort({ createdAt: -1 }).lean();
+          dbReceipts = await DonationReceipt.find({
+            $and: [
+              { $or: orClauses },
+              { status: { $ne: 'Inactive' } }
+            ]
+          }).sort({ createdAt: -1 }).lean();
         }
       } catch (e) {
         console.warn('Error fetching receipts for trust summary:', e.message);
@@ -260,6 +265,7 @@ router.get('/:id/summary', async (req, res) => {
     const allFileReceipts = getCollection('receipts', []);
     const fileReceipts = allFileReceipts.filter(r => {
       if (!r) return false;
+      if (r.status && r.status.toLowerCase() === 'inactive') return false;
       const rEmail = (r.trustEmail || '').trim().toLowerCase();
       const rCreated = (r.createdBy || '').trim().toLowerCase();
       const rTrust = (r.trustName || '').trim().toLowerCase();

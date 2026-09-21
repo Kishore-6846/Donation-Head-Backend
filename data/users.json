@@ -165,7 +165,7 @@
     "role": "Admin",
     "plan": "Starter",
     "status": "Active",
-    "receiptsCount": 3,
+    "receiptsCount": 0,
     "joinedDate": "17/09/2026",
     "isSuperAdmin": false,
     "_id": "6aab9785e9ac1b5950b5bccd",
@@ -214,12 +214,13 @@
     "reg12ADate": "2026-09-19",
     "emailSubject": "",
     "emailBody": "",
-    "receiptPrefix": "",
+    "receiptPrefix": "GURU/2026-27/",
     "receiptStartNumber": "1",
-    "receiptWatermarkText": "",
+    "receiptWatermarkText": "GURU",
     "role": "Admin",
     "isSuperAdmin": false,
     "receiptsCount": 1,
-    "status": "Active"
+    "status": "Active",
+    "designation": "Authorized Signatory"
   }
 ]

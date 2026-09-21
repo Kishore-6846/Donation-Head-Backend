@@ -22,7 +22,7 @@ const getFinancialYear = () => {
   return `${startYear}-${endYear}`;
 };
 
-const generateReceiptNo = async (trustPrefix = 'REC', startSeq = 1) => {
+const generateReceiptNo = async (trustPrefix = 'REC', startSeq = 1, trustEmail = '', trustName = '') => {
   const fy = getFinancialYear();
   let raw = String(trustPrefix || 'REC').trim();
   if (raw.endsWith('/')) {
@@ -30,36 +30,55 @@ const generateReceiptNo = async (trustPrefix = 'REC', startSeq = 1) => {
   }
   const hasSlash = raw.includes('/');
   const prefixBase = hasSlash ? raw : `${raw}/${fy}`;
-  const searchPattern = `^${prefixBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`;
+  const formattedPrefix = `${prefixBase}/`;
+  const escapedPrefix = prefixBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const searchPattern = `^${escapedPrefix}/`;
 
   let maxSeq = Math.max(Number(startSeq) || 1, 1);
+  const tEmail = (trustEmail || '').trim().toLowerCase();
+  const tName = (trustName || '').trim().toLowerCase();
+
   try {
+    let existingReceipts = [];
     if (getIsConnected()) {
-      const allReceipts = await DonationReceipt.find({ receiptNo: new RegExp(searchPattern) }).lean();
-      for (const r of allReceipts) {
-        if (r.receiptNo) {
-          const parts = r.receiptNo.split('/');
-          const lastNum = parseInt(parts[parts.length - 1], 10);
+      const orClauses = [{ receiptNo: new RegExp(searchPattern, 'i') }];
+      if (tEmail) {
+        orClauses.push({ trustEmail: new RegExp(`^${tEmail}$`, 'i') });
+        orClauses.push({ createdBy: new RegExp(`^${tEmail}$`, 'i') });
+      }
+      if (tName && tName !== 'trust organization') {
+        orClauses.push({ trustName: new RegExp(`^${tName}$`, 'i') });
+      }
+      existingReceipts = await DonationReceipt.find({ $or: orClauses }).lean();
+    } else {
+      const fileList = getReceipts();
+      existingReceipts = fileList.filter(r => {
+        if (!r || !r.receiptNo) return false;
+        const matchPrefix = new RegExp(searchPattern, 'i').test(r.receiptNo);
+        const rEmail = (r.trustEmail || '').toLowerCase().trim();
+        const rCreated = (r.createdBy || '').toLowerCase().trim();
+        const rTrust = (r.trustName || '').toLowerCase().trim();
+        const matchAdmin = (tEmail && (rEmail === tEmail || rCreated === tEmail)) || (tName && tName !== 'trust organization' && rTrust === tName);
+        return matchPrefix || matchAdmin;
+      });
+    }
+
+    for (const r of existingReceipts) {
+      if (r && r.receiptNo) {
+        const match = String(r.receiptNo).match(/(\d+)$/);
+        if (match) {
+          const lastNum = parseInt(match[1], 10);
           if (!isNaN(lastNum) && lastNum >= maxSeq) {
             maxSeq = lastNum + 1;
           }
         }
       }
     }
-    const fileList = getReceipts();
-    for (const r of fileList) {
-      if (r.receiptNo && new RegExp(searchPattern).test(r.receiptNo)) {
-        const parts = r.receiptNo.split('/');
-        const lastNum = parseInt(parts[parts.length - 1], 10);
-        if (!isNaN(lastNum) && lastNum >= maxSeq) {
-          maxSeq = lastNum + 1;
-        }
-      }
-    }
   } catch (e) {
-    maxSeq = Math.max(maxSeq, Math.floor(Date.now() % 100000));
+    console.warn('Error calculating next receipt number:', e.message);
   }
-  return `${prefixBase}/${maxSeq}`;
+
+  return `${formattedPrefix}${maxSeq}`;
 };
 
 const User = require('../models/User');
@@ -245,6 +264,12 @@ const enrichReceiptWithTrustData = async (receipt, req = {}) => {
       trust80GDate: adminUser?.reg12ADate || receipt.trust80GDate || '',
       trustLogo: adminUser?.logo || receipt.trustLogo || '',
       trustSignature: adminUser?.signature || receipt.trustSignature || '',
+      trustWatermarkText: (adminUser?.receiptWatermarkText !== undefined && adminUser?.receiptWatermarkText !== null)
+        ? adminUser.receiptWatermarkText
+        : (receipt.receiptWatermarkText || receipt.watermarkText || ''),
+      receiptWatermarkText: (adminUser?.receiptWatermarkText !== undefined && adminUser?.receiptWatermarkText !== null)
+        ? adminUser.receiptWatermarkText
+        : (receipt.receiptWatermarkText || receipt.watermarkText || ''),
       signatoryName: adminUser?.contactPerson || adminUser?.signatoryName || adminUser?.name || receipt.signatoryName || 'Authorized Signatory',
       signatoryPan: adminUser?.signatoryPan || adminUser?.panNo || receipt.signatoryPan || '',
       certificates: receipt.certificates || certificates
@@ -293,11 +318,11 @@ router.get('/', async (req, res) => {
 
     const conditions = [];
 
-    // Filter by status if specified, or default to Active for non-super trusts
+    // Filter by status if specified, or default to excluding Inactive receipts
     if (status && status !== 'All') {
       conditions.push({ status });
-    } else if (!isSuper && !status) {
-      conditions.push({ status: 'Active' });
+    } else if (!status) {
+      conditions.push({ status: { $ne: 'Inactive' } });
     }
 
     // If not super admin, strictly isolate receipts to the requesting trust only
@@ -355,8 +380,8 @@ router.get('/', async (req, res) => {
       let list = getReceipts();
       if (status && status !== 'All') {
         list = list.filter(r => (r.status || 'Active') === status);
-      } else if (!isSuper && !status) {
-        list = list.filter(r => (r.status || 'Active') === 'Active');
+      } else if (!status) {
+        list = list.filter(r => (r.status || 'Active') !== 'Inactive');
       }
 
       if (!isSuper) {
@@ -412,33 +437,59 @@ router.get('/', async (req, res) => {
 
 // GET next receipt number preview
 router.get('/next-number', async (req, res) => {
-  const { trustName = '', prefix = '', startNumber = 1, trustEmail = '' } = req.query;
-  let customPrefix = prefix;
-  let customStart = Number(startNumber) || 1;
+  const { trustName = '', prefix = '', startNumber = '', trustEmail = '' } = req.query;
 
-  if (trustEmail) {
+  let tokenEmail = '';
+  let tokenTrustName = '';
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    try {
+      const token = req.headers.authorization.split(' ')[1];
+      const jwt = require('jsonwebtoken');
+      const JWT_SECRET = process.env.JWT_SECRET || 'donation_receipt_secure_secret_2026';
+      const decoded = jwt.verify(token, JWT_SECRET);
+      if (decoded) {
+        tokenEmail = decoded.email || '';
+        tokenTrustName = decoded.trustName || decoded.name || '';
+      }
+    } catch (e) {}
+  }
+
+  const effectiveEmail = (trustEmail || req.headers['x-trust-email'] || tokenEmail || '').trim();
+  const effectiveName = (trustName || req.headers['x-trust-name'] || tokenTrustName || '').trim();
+
+  let customPrefix = prefix;
+  let customStart = startNumber ? Number(startNumber) : null;
+
+  if (effectiveEmail) {
     let trustUser = null;
     if (getIsConnected()) {
       try {
-        trustUser = await User.findOne({ email: new RegExp(`^${trustEmail.trim()}$`, 'i') }).lean();
+        trustUser = await User.findOne({ email: new RegExp(`^${effectiveEmail.trim()}$`, 'i') }).lean();
       } catch (e) {}
     }
     if (!trustUser) {
       const allUsers = getUsers();
-      trustUser = allUsers.find(u => u.email && u.email.toLowerCase() === trustEmail.toLowerCase().trim());
+      trustUser = allUsers.find(u => u.email && u.email.toLowerCase() === effectiveEmail.toLowerCase());
     }
     if (trustUser) {
       if (trustUser.receiptPrefix && !customPrefix) {
         customPrefix = trustUser.receiptPrefix;
       }
-      if (trustUser.receiptStartNumber) {
-        customStart = Number(trustUser.receiptStartNumber) || customStart;
+      if (trustUser.receiptStartNumber && customStart === null) {
+        customStart = Number(trustUser.receiptStartNumber);
       }
     }
   }
 
-  const p = customPrefix || (trustName ? trustName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() : 'REC');
-  const nextNo = await generateReceiptNo(p, customStart);
+  if (customStart === null || isNaN(customStart) || customStart < 1) {
+    customStart = 1;
+  }
+
+  const p = customPrefix || (effectiveName && effectiveName !== 'DONATION RECEIPT SUPER ADMIN' && effectiveName !== 'Trust Organization'
+    ? effectiveName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase()
+    : 'REC');
+
+  const nextNo = await generateReceiptNo(p, customStart, effectiveEmail, effectiveName);
   return res.json({
     success: true,
     receiptNo: nextNo
@@ -902,16 +953,6 @@ router.post('/', async (req, res) => {
 
     const todayStr = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY
     const formattedDate = receiptDate || todayStr;
-    const fy = getFinancialYear();
-    let receiptNumber = receiptNo;
-    if (!receiptNumber) {
-      if (receiptPrefix) {
-        receiptNumber = `${receiptPrefix}${currentSeq++}`;
-      } else {
-        receiptNumber = await generateReceiptNo();
-      }
-    }
-
     const isSuperAdminCreator =
       Boolean(req.body.isSuperAdminReceipt) ||
       (req.user?.role && req.user.role.toLowerCase().includes('super')) ||
@@ -921,6 +962,51 @@ router.post('/', async (req, res) => {
     const finalTrustEmail = (trustEmail && trustEmail.trim()) ? trustEmail.trim() : (req.user?.email || '');
     const finalTrustName = (trustName && trustName.trim()) ? trustName.trim() : (req.user?.trustName || 'Trust Organization');
     const creatorId = isSuperAdminCreator ? 'Super Admin' : (createdBy || finalTrustEmail || 'admin');
+
+    // Resolve user's configured receipt prefix and start number for guaranteed sequence isolation
+    let userPrefix = receiptPrefix || '';
+    let userStartSeq = 1;
+    if (finalTrustEmail) {
+      let trustUser = null;
+      if (getIsConnected()) {
+        try {
+          trustUser = await User.findOne({ email: new RegExp(`^${finalTrustEmail.trim()}$`, 'i') }).lean();
+        } catch (e) {}
+      }
+      if (!trustUser) {
+        trustUser = getUsers().find(u => u.email && u.email.toLowerCase() === finalTrustEmail.toLowerCase());
+      }
+      if (trustUser) {
+        if (!userPrefix && trustUser.receiptPrefix) userPrefix = trustUser.receiptPrefix;
+        if (trustUser.receiptStartNumber) userStartSeq = Number(trustUser.receiptStartNumber) || 1;
+      }
+    }
+    if (!userPrefix) {
+      const p = finalTrustName && finalTrustName !== 'Trust Organization' && finalTrustName !== 'DONATION RECEIPT SUPER ADMIN'
+        ? finalTrustName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase()
+        : 'REC';
+      userPrefix = p;
+    }
+
+    let receiptNumber = (receiptNo || '').trim();
+    // Validate uniqueness of receiptNumber: if empty or already taken in DB / file storage, generate guaranteed unique next number
+    let isDuplicate = false;
+    if (receiptNumber) {
+      if (getIsConnected()) {
+        const count = await DonationReceipt.countDocuments({ receiptNo: receiptNumber });
+        if (count > 0) isDuplicate = true;
+      }
+      if (!isDuplicate) {
+        const fileList = getReceipts();
+        if (fileList.some(r => r.receiptNo && r.receiptNo.toLowerCase() === receiptNumber.toLowerCase())) {
+          isDuplicate = true;
+        }
+      }
+    }
+
+    if (!receiptNumber || isDuplicate) {
+      receiptNumber = await generateReceiptNo(userPrefix, userStartSeq, finalTrustEmail, finalTrustName);
+    }
 
     if (getIsConnected()) {
       const receipt = await DonationReceipt.create({

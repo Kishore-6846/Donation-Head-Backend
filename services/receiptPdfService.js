@@ -198,14 +198,30 @@ function renderReceiptPages(doc, receipt) {
   doc.fontSize(11).font('Helvetica-Bold').fillColor('#000000').text('Donation Receipt', boxX, titleY, { width: boxW, align: 'center', underline: true });
 
   // --- Dynamic Watermark in Center Background ---
-  const watermarkWords = trustName.trim().split(/\s+/);
-  const watermarkText = watermarkWords.length > 1 
-    ? watermarkWords.map(w => w[0]).join('').slice(0, 5).toUpperCase()
-    : trustName.slice(0, 4).toUpperCase();
+  const rawWatermark = (receipt.receiptWatermarkText !== undefined && receipt.receiptWatermarkText !== null && String(receipt.receiptWatermarkText).trim() !== '')
+    ? String(receipt.receiptWatermarkText).trim()
+    : ((receipt.trustWatermarkText !== undefined && receipt.trustWatermarkText !== null && String(receipt.trustWatermarkText).trim() !== '')
+      ? String(receipt.trustWatermarkText).trim()
+      : ((receipt.watermarkText !== undefined && receipt.watermarkText !== null && String(receipt.watermarkText).trim() !== '')
+        ? String(receipt.watermarkText).trim()
+        : ''));
+
+  const watermarkText = rawWatermark ? rawWatermark.toUpperCase() : '';
 
   if (watermarkText) {
     doc.save();
-    doc.fontSize(56).font('Helvetica-Bold').fillColor('#000000', 0.06)
+    let wmFontSize = 54;
+    const len = watermarkText.length;
+    if (len > 30) {
+      wmFontSize = 22;
+    } else if (len > 20) {
+      wmFontSize = 28;
+    } else if (len > 14) {
+      wmFontSize = 36;
+    } else if (len > 8) {
+      wmFontSize = 46;
+    }
+    doc.fontSize(wmFontSize).font('Helvetica-Bold').fillColor('#000000', 0.06)
        .text(watermarkText, boxX, d2 + 65, { width: boxW, align: 'center' });
     doc.restore();
   }

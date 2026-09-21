@@ -162,11 +162,12 @@ const getSuperAdminStats = async (req, res) => {
     const totalEmployees = employeesList.length;
     const activeEmployees = employeesList.filter(e => !e.status || e.status.toLowerCase() === 'active').length;
 
-    const totalReceipts = receiptsList.length;
-    const activeReceipts = receiptsList.filter(r => !r.status || r.status.toLowerCase() === 'active').length;
-    const totalDonationAmount = receiptsList.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const activeReceiptsList = receiptsList.filter(r => (r.status || 'Active') !== 'Inactive');
+    const totalReceipts = activeReceiptsList.length;
+    const activeReceipts = activeReceiptsList.length;
+    const totalDonationAmount = activeReceiptsList.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
-    const recentReceipts = receiptsList.slice(0, 8).map(r => ({
+    const recentReceipts = activeReceiptsList.slice(0, 8).map(r => ({
       _id: (r._id || '').toString(),
       receiptNo: r.receiptNo,
       donorName: r.donorName,

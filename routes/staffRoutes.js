@@ -113,8 +113,13 @@ router.post('/', async (req, res) => {
       trustName = ''
     } = req.body;
 
-    if (!name || !email) {
-      return res.status(400).json({ success: false, message: 'Name and email are required' });
+    if (!name || !email || !phone) {
+      return res.status(400).json({ success: false, message: 'Name, email, and mobile number are required' });
+    }
+
+    const cleanName = (name || '').replace(/[^a-zA-Z\s.]/g, '').trim();
+    if (!cleanName) {
+      return res.status(400).json({ success: false, message: 'Name should only contain letters and spaces' });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -123,11 +128,14 @@ router.post('/', async (req, res) => {
     }
 
     const cleanPhone = (phone || '').replace(/\D/g, '').slice(0, 10);
-    if (phone && cleanPhone.length !== 10) {
+    if (!cleanPhone || cleanPhone.length !== 10) {
       return res.status(400).json({ success: false, message: 'Mobile number must be exactly 10 digits' });
     }
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      return res.status(400).json({ success: false, message: 'Mobile number must start with 6, 7, 8, or 9' });
+    }
 
-    // Check Plan Limits
+    // Check Plan Limits & Trust User
     const queryEmail = (trustEmail || '').toLowerCase().trim();
     let trustUser = null;
     if (queryEmail || trustId || trustName) {
@@ -150,6 +158,56 @@ router.post('/', async (req, res) => {
           (trustName && (u.trustName === trustName || u.name === trustName))
         );
       }
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Check if duplicate of Trust Admin account email or mobile
+    if (trustUser) {
+      if (trustUser.email && trustUser.email.toLowerCase().trim() === cleanEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'This Email ID is already in use by the Trust Admin account. Please use a different email.'
+        });
+      }
+      const adminMobile = (trustUser.mobile || trustUser.phone || '').replace(/\D/g, '').slice(-10);
+      if (adminMobile && adminMobile === cleanPhone) {
+        return res.status(400).json({
+          success: false,
+          message: 'This Mobile Number is already in use by the Trust Admin account. Please use a different mobile number.'
+        });
+      }
+    }
+
+    // Check if staff member with same email or mobile already exists
+    let duplicateStaffEmail = null;
+    let duplicateStaffPhone = null;
+
+    if (getIsConnected()) {
+      try {
+        duplicateStaffEmail = await Staff.findOne({ email: cleanEmail }).lean();
+        duplicateStaffPhone = await Staff.findOne({ phone: cleanPhone }).lean();
+      } catch (e) {
+        console.warn('DB check duplicate staff error:', e.message);
+      }
+    } else {
+      const allStaff = getStaff();
+      duplicateStaffEmail = allStaff.find(s => s.email && s.email.toLowerCase().trim() === cleanEmail);
+      duplicateStaffPhone = allStaff.find(s => s.phone && s.phone.replace(/\D/g, '').slice(-10) === cleanPhone);
+    }
+
+    if (duplicateStaffEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'A staff member with this Email ID already exists. Please use a different email address.'
+      });
+    }
+
+    if (duplicateStaffPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'A staff member with this Mobile Number already exists. Please use a different mobile number.'
+      });
     }
 
     if (trustUser) {
@@ -195,9 +253,9 @@ router.post('/', async (req, res) => {
 
     let createdMember = null;
     const memberData = {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
+      name: cleanName,
+      email: cleanEmail,
+      phone: cleanPhone,
       role: role.trim() || 'Staff Member',
       status: status || 'Active',
       trustEmail: trustEmail ? trustEmail.trim().toLowerCase() : '',
@@ -211,20 +269,33 @@ router.post('/', async (req, res) => {
         await syncTrustStaffCount(memberData.trustEmail, memberData.trustId, memberData.trustName);
       } catch (e) {
         console.warn('DB error creating staff:', e.message);
+        if (e.code === 11000) {
+          const field = Object.keys(e.keyPattern || {})[0] || 'email or mobile';
+          return res.status(400).json({
+            success: false,
+            message: `A staff member with this ${field} already exists.`
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          message: e.message || 'Failed to add staff member.'
+        });
       }
     }
 
-    const all = getStaff();
-    const diskMember = {
-      _id: createdMember ? createdMember._id.toString() : `staff_${Date.now()}`,
-      ...memberData,
-      createdAt: createdMember?.createdAt || new Date().toISOString()
-    };
-    all.unshift(diskMember);
-    saveStaff(all);
+    if (!getIsConnected() || createdMember) {
+      const all = getStaff();
+      const diskMember = {
+        _id: createdMember ? createdMember._id.toString() : `staff_${Date.now()}`,
+        ...memberData,
+        createdAt: createdMember?.createdAt || new Date().toISOString()
+      };
+      all.unshift(diskMember);
+      saveStaff(all);
 
-    if (!createdMember) {
-      createdMember = diskMember;
+      if (!createdMember) {
+        createdMember = diskMember;
+      }
     }
 
     return res.status(201).json({
@@ -243,7 +314,61 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const updateData = { ...req.body };
     if (updateData.email) updateData.email = updateData.email.trim().toLowerCase();
-    if (updateData.name) updateData.name = updateData.name.trim();
+    if (updateData.name !== undefined) {
+      const cleanName = (updateData.name || '').replace(/[^a-zA-Z\s.]/g, '').trim();
+      if (!cleanName) {
+        return res.status(400).json({ success: false, message: 'Name should only contain letters and spaces' });
+      }
+      updateData.name = cleanName;
+    }
+    if (updateData.phone !== undefined) {
+      const cleanPhone = (updateData.phone || '').replace(/\D/g, '').slice(-10);
+      if (!cleanPhone || cleanPhone.length !== 10) {
+        return res.status(400).json({ success: false, message: 'Mobile number must be exactly 10 digits' });
+      }
+      if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+        return res.status(400).json({ success: false, message: 'Mobile number must start with 6, 7, 8, or 9' });
+      }
+      updateData.phone = cleanPhone;
+    }
+
+    // Check duplicate email
+    if (updateData.email) {
+      let dupEmail = null;
+      if (getIsConnected()) {
+        try {
+          dupEmail = await Staff.findOne({ _id: { $ne: id }, email: updateData.email }).lean();
+        } catch (e) {}
+      } else {
+        const allStaff = getStaff();
+        dupEmail = allStaff.find(s => s._id !== id && s.id !== id && s.email && s.email.toLowerCase().trim() === updateData.email);
+      }
+      if (dupEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'Another staff member with this Email ID already exists.'
+        });
+      }
+    }
+
+    // Check duplicate phone
+    if (updateData.phone) {
+      let dupPhone = null;
+      if (getIsConnected()) {
+        try {
+          dupPhone = await Staff.findOne({ _id: { $ne: id }, phone: updateData.phone }).lean();
+        } catch (e) {}
+      } else {
+        const allStaff = getStaff();
+        dupPhone = allStaff.find(s => s._id !== id && s.id !== id && s.phone && s.phone.replace(/\D/g, '').slice(-10) === updateData.phone);
+      }
+      if (dupPhone) {
+        return res.status(400).json({
+          success: false,
+          message: 'Another staff member with this Mobile Number already exists.'
+        });
+      }
+    }
 
     let updatedMember = null;
     if (getIsConnected()) {
@@ -254,17 +379,26 @@ router.put('/:id', async (req, res) => {
         }
       } catch (e) {
         console.warn('DB error updating staff:', e.message);
+        if (e.code === 11000) {
+          const field = Object.keys(e.keyPattern || {})[0] || 'email or mobile';
+          return res.status(400).json({
+            success: false,
+            message: `Another staff member with this ${field} already exists.`
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          message: e.message || 'Failed to update staff member.'
+        });
       }
     }
 
-    if (!updatedMember) {
-      const all = getStaff();
-      const idx = all.findIndex(s => s._id === id);
-      if (idx !== -1) {
-        all[idx] = { ...all[idx], ...updateData };
-        saveStaff(all);
-        updatedMember = all[idx];
-      }
+    const all = getStaff();
+    const idx = all.findIndex(s => s._id === id || s.id === id);
+    if (idx !== -1) {
+      all[idx] = { ...all[idx], ...updateData };
+      saveStaff(all);
+      if (!updatedMember) updatedMember = all[idx];
     }
 
     if (!updatedMember) {
