@@ -1,5 +1,8 @@
 const mongoose = require('mongoose');
 
+// Never buffer commands if connection is not established or reconnecting
+mongoose.set('bufferCommands', false);
+
 let isConnected = false;
 
 const connectDB = async () => {
@@ -15,7 +18,11 @@ const connectDB = async () => {
   }
 
   try {
-    const conn = await mongoose.connect(uri);
+    const conn = await mongoose.connect(uri, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 30000,
+      maxPoolSize: 20
+    });
     isConnected = true;
     console.log(`✅ MongoDB Connected successfully: ${conn.connection.host}`);
     return true;
@@ -26,6 +33,8 @@ const connectDB = async () => {
   }
 };
 
-const getIsConnected = () => isConnected;
+const getIsConnected = () => {
+  return mongoose.connection && mongoose.connection.readyState === 1;
+};
 
 module.exports = { connectDB, getIsConnected };

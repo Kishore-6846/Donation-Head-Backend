@@ -49,7 +49,7 @@ const generateReceiptNo = async (trustPrefix = 'REC', startSeq = 1, trustEmail =
       if (tName && tName !== 'trust organization') {
         orClauses.push({ trustName: new RegExp(`^${tName}$`, 'i') });
       }
-      existingReceipts = await DonationReceipt.find({ $or: orClauses }).lean();
+      existingReceipts = await DonationReceipt.find({ $or: orClauses }).select('receiptNo').lean();
     } else {
       const fileList = getReceipts();
       existingReceipts = fileList.filter(r => {
@@ -363,11 +363,15 @@ router.get('/', async (req, res) => {
     if (getIsConnected()) {
       const filter = conditions.length > 1 ? { $and: conditions } : (conditions.length === 1 ? conditions[0] : {});
 
-      const total = await DonationReceipt.countDocuments(filter);
-      const receipts = await DonationReceipt.find(filter)
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(Number(limit));
+      const [total, receipts] = await Promise.all([
+        DonationReceipt.countDocuments(filter),
+        DonationReceipt.find(filter)
+          .select('-trustLogo -trustSignature -signature -logo -pdf -pdfData -file')
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(Number(limit))
+          .lean()
+      ]);
 
       return res.json({
         success: true,

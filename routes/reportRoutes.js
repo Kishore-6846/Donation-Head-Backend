@@ -45,7 +45,10 @@ const getLiveReceiptsList = async (trustEmail = '', trustId = '', trustName = ''
 
   if (getIsConnected()) {
     try {
-      mongoList = await DonationReceipt.find(query).sort({ createdAt: -1 }).lean();
+      mongoList = await DonationReceipt.find(query)
+        .select('-trustLogo -trustSignature -signature -logo -pdf -pdfData -file')
+        .sort({ createdAt: -1 })
+        .lean();
       return mongoList.filter(r => (r.status || 'Active') === 'Active');
     } catch (e) {
       console.warn('Error querying MongoDB receipts for reports:', e.message);
@@ -574,7 +577,7 @@ router.get('/superadmin', async (req, res) => {
             { role: { $not: /super/i } },
             { isSuperAdmin: { $ne: true } }
           ]
-        }).lean();
+        }).select('name trustName email mobile phone plan status joinedDate createdAt role isSuperAdmin').lean();
       } catch (e) {
         console.warn('DB read error for users in reportRoutes:', e.message);
       }
@@ -582,8 +585,8 @@ router.get('/superadmin', async (req, res) => {
 
     if (!allUsers || allUsers.length === 0) {
       try {
-        const { getUsers } = require('./userRoutes');
-        allUsers = getUsers().filter(u => !u.isSuperAdmin && (!u.role || !u.role.toLowerCase().includes('super')));
+        const { getCollection } = require('../services/storageService');
+        allUsers = getCollection('users', []).filter(u => !u.isSuperAdmin && (!u.role || !u.role.toLowerCase().includes('super')));
       } catch (e) {
         console.warn('Fallback users read error:', e.message);
       }
@@ -594,7 +597,7 @@ router.get('/superadmin', async (req, res) => {
     if (getIsConnected()) {
       try {
         const Staff = require('../models/Staff');
-        allStaff = await Staff.find({}).lean();
+        allStaff = await Staff.find({}).select('name email role status trustEmail trustId trustName').lean();
       } catch (e) {}
     }
     if (!allStaff || allStaff.length === 0) {

@@ -82,49 +82,39 @@ router.get('/', async (req, res) => {
     let usersList = null;
 
     let allDbStaff = [];
-    let allDbReceipts = [];
-
-    if (getIsConnected()) {
-      try {
-        allDbStaff = await Staff.find({}).lean();
-      } catch (sErr) {
-        console.warn('Error fetching allDbStaff in GET /api/users:', sErr.message);
-        allDbStaff = [];
-      }
-      try {
-        allDbReceipts = await DonationReceipt.find({}).lean();
-      } catch (rErr) {
-        console.warn('Error fetching allDbReceipts in GET /api/users:', rErr.message);
-        allDbReceipts = [];
-      }
+    const query = {
+      $and: [
+        { role: { $not: /super/i } },
+        { isSuperAdmin: { $ne: true } }
+      ]
+    };
+    if (status && status !== 'All') {
+      query.status = { $regex: new RegExp(`^${status}$`, 'i') };
+    }
+    if (plan && plan !== 'All') {
+      query.plan = { $regex: new RegExp(`^${plan}$`, 'i') };
+    }
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { trustName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { contactPerson: { $regex: search, $options: 'i' } }
+      ];
     }
 
-    const allStaff = combineUniqueItems(allDbStaff, getCollection('staff', []), getStaffKey);
-    const allReceipts = combineUniqueItems(allDbReceipts, getCollection('receipts', []), getReceiptKey);
-
     if (getIsConnected()) {
       try {
-        const query = {
-          $and: [
-            { role: { $not: /super/i } },
-            { isSuperAdmin: { $ne: true } }
-          ]
-        };
-        if (status && status !== 'All') {
-          query.status = { $regex: new RegExp(`^${status}$`, 'i') };
-        }
-        if (plan && plan !== 'All') {
-          query.plan = { $regex: new RegExp(`^${plan}$`, 'i') };
-        }
-        if (search) {
-          query.$or = [
-            { name: { $regex: search, $options: 'i' } },
-            { trustName: { $regex: search, $options: 'i' } },
-            { email: { $regex: search, $options: 'i' } },
-            { contactPerson: { $regex: search, $options: 'i' } }
-          ];
-        }
-        const dbUsers = await User.find(query).sort({ createdAt: -1 }).lean();
+        const [dbStaff, dbReceipts, dbUsers] = await Promise.all([
+          Staff.find({}, 'trustEmail trustId trustName status').lean(),
+          DonationReceipt.find({}, 'trustEmail createdBy trustId trustName status').lean(),
+          User.find(query).select('-password -signature -logo').sort({ createdAt: -1 }).lean()
+        ]);
+        allDbStaff = dbStaff;
+        allDbReceipts = dbReceipts;
+
+        const allStaff = combineUniqueItems(allDbStaff, getCollection('staff', []), getStaffKey);
+        const allReceipts = combineUniqueItems(allDbReceipts, getCollection('receipts', []), getReceiptKey);
 
         usersList = dbUsers.map(u => {
           const staffCount = matchTrustStaff(u, allStaff);
@@ -152,7 +142,6 @@ router.get('/', async (req, res) => {
             status: u.status || 'Active',
             joinedDate: u.joinedDate || (u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : 'Today'),
             createdAt: u.createdAt,
-            logo: u.logo || '',
             role: u.role || 'Admin'
           };
         });
@@ -162,6 +151,8 @@ router.get('/', async (req, res) => {
     }
 
     if (usersList === null) {
+      const allStaff = getCollection('staff', []);
+      const allReceipts = getCollection('receipts', []);
       usersList = getUsers()
         .filter(u => !u.isSuperAdmin && (!u.role || !u.role.toLowerCase().includes('super')))
         .map(u => {
@@ -255,7 +246,10 @@ router.get('/:id/summary', async (req, res) => {
               { $or: orClauses },
               { status: { $ne: 'Inactive' } }
             ]
-          }).sort({ createdAt: -1 }).lean();
+          })
+            .select('-trustLogo -trustSignature -signature -logo -pdf -pdfData -file')
+            .sort({ createdAt: -1 })
+            .lean();
         }
       } catch (e) {
         console.warn('Error fetching receipts for trust summary:', e.message);
@@ -411,9 +405,9 @@ router.get('/:id', async (req, res) => {
     if (getIsConnected()) {
       try {
         if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
-          user = await User.findById(id).lean();
+          user = await User.findById(id).select('-password -signature').lean();
         } else {
-          user = await User.findOne({ $or: [{ _id: id }, { email: id }] }).lean();
+          user = await User.findOne({ $or: [{ _id: id }, { email: id }] }).select('-password -signature').lean();
         }
       } catch (e) {}
     }
@@ -427,19 +421,51 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let allDbStaff = [];
-    let allDbReceipts = [];
+    let staffCount = 0;
+    let receiptsCount = 0;
+    const uEmail = (user.email || '').trim().toLowerCase();
+    const uName = (user.trustName || user.name || '').trim().toLowerCase();
+
     if (getIsConnected()) {
-      try { allDbStaff = await Staff.find({}).lean(); } catch (e) {}
-      try { allDbReceipts = await DonationReceipt.find({}).lean(); } catch (e) {}
+      try {
+        const staffOr = [];
+        const receiptOr = [];
+        if (uEmail) {
+          staffOr.push({ trustEmail: new RegExp(`^${uEmail}$`, 'i') });
+          receiptOr.push({ trustEmail: new RegExp(`^${uEmail}$`, 'i') });
+          receiptOr.push({ createdBy: new RegExp(`^${uEmail}$`, 'i') });
+        }
+        if (user._id && user._id.toString().match(/^[0-9a-fA-F]{24}$/)) {
+          staffOr.push({ trustId: user._id.toString() });
+          receiptOr.push({ trustId: user._id.toString() });
+        }
+        if (uName && uName !== 'trust organization') {
+          staffOr.push({ trustName: new RegExp(`^${uName}$`, 'i') });
+          receiptOr.push({ trustName: new RegExp(`^${uName}$`, 'i') });
+        }
+
+        const [sCount, rCount] = await Promise.all([
+          staffOr.length > 0 ? Staff.countDocuments({ status: { $ne: 'Inactive' }, $or: staffOr }) : 0,
+          receiptOr.length > 0 ? DonationReceipt.countDocuments({ status: { $ne: 'Inactive' }, $or: receiptOr }) : 0
+        ]);
+        staffCount = sCount;
+        receiptsCount = rCount;
+      } catch (e) {
+        console.warn('Count query error for user:', e.message);
+      }
     }
-    const allStaff = combineUniqueItems(allDbStaff, getCollection('staff', []), getStaffKey);
-    const allReceipts = combineUniqueItems(allDbReceipts, getCollection('receipts', []), getReceiptKey);
+
+    if (staffCount === 0 && receiptsCount === 0) {
+      const allStaff = getCollection('staff', []);
+      const allReceipts = getCollection('receipts', []);
+      staffCount = matchTrustStaff(user, allStaff);
+      receiptsCount = matchTrustReceipts(user, allReceipts);
+    }
 
     const safeUser = {
       ...user,
-      staffCount: matchTrustStaff(user, allStaff),
-      receiptsCount: matchTrustReceipts(user, allReceipts)
+      staffCount: staffCount || user.staffCount || 0,
+      receiptsCount: receiptsCount || user.receiptsCount || 0
     };
 
     return res.json({ success: true, data: safeUser });

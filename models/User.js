@@ -123,4 +123,8 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+userSchema.index({ role: 1, isSuperAdmin: 1, createdAt: -1 });
+userSchema.index({ trustName: 1 });
+userSchema.index({ status: 1 });
+
 module.exports = mongoose.models.User || mongoose.model('User', userSchema);

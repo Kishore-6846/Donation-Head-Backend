@@ -106,4 +106,9 @@ const donationReceiptSchema = new mongoose.Schema(
   }
 );
 
+donationReceiptSchema.index({ trustEmail: 1, createdAt: -1 });
+donationReceiptSchema.index({ createdBy: 1, createdAt: -1 });
+donationReceiptSchema.index({ status: 1, createdAt: -1 });
+donationReceiptSchema.index({ donationHead: 1 });
+
 module.exports = mongoose.models.DonationReceipt || mongoose.model('DonationReceipt', donationReceiptSchema);

@@ -42,4 +42,8 @@ const donationHeadSchema = new mongoose.Schema(
   }
 );
 
+donationHeadSchema.index({ name: 1 });
+donationHeadSchema.index({ isGlobal: 1, createdAt: -1 });
+donationHeadSchema.index({ trustEmail: 1 });
+
 module.exports = mongoose.models.DonationHead || mongoose.model('DonationHead', donationHeadSchema);

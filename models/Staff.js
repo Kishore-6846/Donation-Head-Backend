@@ -50,4 +50,8 @@ const staffSchema = new mongoose.Schema(
   }
 );
 
+staffSchema.index({ trustEmail: 1, createdAt: -1 });
+staffSchema.index({ email: 1 });
+staffSchema.index({ phone: 1 });
+
 module.exports = mongoose.models.Staff || mongoose.model('Staff', staffSchema);

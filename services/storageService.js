@@ -3,7 +3,8 @@ const path = require('path');
 
 const dataDir = path.join(__dirname, '..', 'data');
 
-const mirrorDir = path.resolve('c:/Users/sivah/OneDrive/Desktop/office-Folder/Donation-Receipt/backend/data');
+// In-Memory fast RAM cache for lightning-fast retrievals
+const memoryCache = new Map();
 
 // Ensure data directory exists
 if (!fs.existsSync(dataDir)) {
@@ -15,54 +16,52 @@ if (!fs.existsSync(dataDir)) {
 }
 
 /**
- * Get data by collection key.
- * If file does not exist, initialize with initialData and write to disk.
+ * Get data by collection key with high-performance in-memory caching.
  */
 function getCollection(key, initialData = []) {
+  if (memoryCache.has(key)) {
+    return memoryCache.get(key);
+  }
+
   const filePath = path.join(dataDir, `${key}.json`);
   try {
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, 'utf-8');
       if (raw && raw.trim()) {
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        memoryCache.set(key, parsed);
+        return parsed;
       }
     }
   } catch (err) {
     console.error(`Error reading ${key}.json:`, err.message);
   }
 
-  // File doesn't exist or error reading -> write initialData
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(initialData, null, 2), 'utf-8');
-    if (fs.existsSync(mirrorDir)) {
-      fs.writeFileSync(path.join(mirrorDir, `${key}.json`), JSON.stringify(initialData, null, 2), 'utf-8');
-    }
-  } catch (err) {
-    console.error(`Error initializing ${key}.json:`, err.message);
-  }
-  return [...initialData];
+  // File doesn't exist or empty -> initialize
+  const data = Array.isArray(initialData) ? [...initialData] : [];
+  memoryCache.set(key, data);
+
+  // Asynchronous background write to avoid blocking event loop
+  fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8', () => {});
+  return data;
 }
 
 /**
- * Save data by collection key.
+ * Save data by collection key with instant in-memory update and non-blocking disk sync.
  */
 function saveCollection(key, data) {
+  const safeData = Array.isArray(data) ? [...data] : data;
+  memoryCache.set(key, safeData);
+
   const filePath = path.join(dataDir, `${key}.json`);
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-    // Mirror to Admin backend directory if available
-    try {
-      if (fs.existsSync(mirrorDir)) {
-        fs.writeFileSync(path.join(mirrorDir, `${key}.json`), JSON.stringify(data, null, 2), 'utf-8');
-      }
-    } catch (mirrorErr) {
-      console.warn('Could not mirror data to admin folder:', mirrorErr.message);
+  // Async write to keep request response times sub-millisecond
+  fs.writeFile(filePath, JSON.stringify(safeData, null, 2), 'utf-8', (err) => {
+    if (err) {
+      console.error(`Error writing ${key}.json:`, err.message);
     }
-    return true;
-  } catch (err) {
-    console.error(`Error writing ${key}.json:`, err.message);
-    return false;
-  }
+  });
+
+  return true;
 }
 
 module.exports = {

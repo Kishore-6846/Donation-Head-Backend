@@ -42,10 +42,16 @@ const getTrustStats = async (req, res) => {
             { createdBy: emailRegex }
           ];
         }
-        allReceipts = await DonationReceipt.find(receiptQuery).lean();
-        allHeads = await DonationHead.find({ status: { $ne: 'Inactive' } }).lean();
-        activeNotifs = await Notification.find({ status: { $ne: 'Draft' } }).sort({ createdAt: -1 }).lean();
-        dbVaultCount = await Certificate.countDocuments(certQuery);
+        const [dbReceipts, dbHeads, dbNotifs, dbVault] = await Promise.all([
+          DonationReceipt.find(receiptQuery).select('amount paymentMode receiptDate createdAt status donorName trustName donationHead receiptNo').lean(),
+          DonationHead.find({ status: { $ne: 'Inactive' } }).select('name status isGlobal trustName trustEmail').lean(),
+          Notification.find({ status: { $ne: 'Draft' } }).sort({ createdAt: -1 }).limit(10).lean(),
+          Certificate.countDocuments(certQuery)
+        ]);
+        allReceipts = dbReceipts;
+        allHeads = dbHeads;
+        activeNotifs = dbNotifs;
+        dbVaultCount = dbVault;
       } catch (dbErr) {
         console.warn('DB error in getTrustStats:', dbErr.message);
       }
@@ -127,10 +133,10 @@ const getSuperAdminStats = async (req, res) => {
       try {
         const [dbPlans, dbUsers, dbEmps, dbReceipts, dbNotifs] = await Promise.all([
           Plan.find().lean(),
-          User.find().sort({ createdAt: -1 }).lean(),
-          Employee.find().sort({ createdAt: -1 }).lean(),
-          DonationReceipt.find().sort({ createdAt: -1 }).lean(),
-          Notification.find().sort({ createdAt: -1 }).lean()
+          User.find({ isSuperAdmin: { $ne: true } }).select('name trustName contactPerson email mobile phone plan status joinedDate createdAt isSuperAdmin role receiptsCount').sort({ createdAt: -1 }).lean(),
+          Employee.find().select('name empId email phone role department permissions status joinedDate createdAt').sort({ createdAt: -1 }).lean(),
+          DonationReceipt.find().select('receiptNo donorName trustName donationHead amount paymentMode receiptDate status trustEmail createdBy createdAt').sort({ createdAt: -1 }).lean(),
+          Notification.find().sort({ createdAt: -1 }).limit(10).lean()
         ]);
 
         plansList = dbPlans;

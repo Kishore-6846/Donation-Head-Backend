@@ -164,36 +164,14 @@ router.get('/', async (req, res) => {
       const query = search
         ? { name: { $regex: search, $options: 'i' } }
         : {};
-      let total = await DonationHead.countDocuments(query);
-
-      // Auto-seed missing default heads
-      if (!search) {
-        try {
-          const existing = await DonationHead.find({}, 'name');
-          const existingNames = new Set(existing.map(h => (h.name || '').toLowerCase()));
-          const missing = initialDonationHeads.filter(h => !existingNames.has((h.name || '').toLowerCase()));
-          if (missing.length > 0) {
-            await DonationHead.insertMany(missing.map(h => ({
-              name: h.name,
-              description: h.description || '',
-              status: h.status || 'Active',
-              isGlobal: true,
-              createdBy: h.createdBy || 'System',
-              createdAt: h.createdAt ? new Date(h.createdAt) : new Date()
-            })));
-            total = await DonationHead.countDocuments(query);
-          }
-        } catch (seedErr) {
-          console.error('Error auto-seeding missing donation heads:', seedErr);
-        }
-      }
 
       const heads = await DonationHead.find(query)
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
-        .limit(Number(limit));
+        .limit(Number(limit))
+        .lean();
 
-      const rawList = (heads.length > 0 || search) ? heads : getHeads();
+      const rawList = (heads && heads.length > 0) ? heads : (search ? [] : getHeads());
       const returnData = deduplicateHeads(rawList, filterTrusts);
 
       return res.json({
