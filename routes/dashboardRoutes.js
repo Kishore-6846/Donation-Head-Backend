@@ -3,10 +3,12 @@ const router = express.Router();
 const { getIsConnected } = require('../config/db');
 const DonationReceipt = require('../models/DonationReceipt');
 const DonationHead = require('../models/DonationHead');
+const Certificate = require('../models/Certificate');
 const Plan = require('../models/Plan');
 const User = require('../models/User');
 const Employee = require('../models/Employee');
 const Notification = require('../models/Notification');
+const { getCollection } = require('../services/storageService');
 
 // Import persistent store getters
 const { getPlans } = require('./planRoutes');
@@ -23,16 +25,27 @@ const getTrustStats = async (req, res) => {
     let allReceipts = null;
     let allHeads = null;
     let activeNotifs = null;
+    let dbVaultCount = null;
 
     if (getIsConnected()) {
       try {
         const receiptQuery = { status: { $ne: 'Inactive' } };
+        const certQuery = {};
         if (trustEmail && trustEmail !== 'admin@donationreceipt.in') {
-          receiptQuery.trustEmail = { $regex: new RegExp(`^${trustEmail}$`, 'i') };
+          const emailRegex = new RegExp(`^${trustEmail.trim()}$`, 'i');
+          receiptQuery.$or = [
+            { trustEmail: emailRegex },
+            { createdBy: emailRegex }
+          ];
+          certQuery.$or = [
+            { trustEmail: emailRegex },
+            { createdBy: emailRegex }
+          ];
         }
         allReceipts = await DonationReceipt.find(receiptQuery).lean();
         allHeads = await DonationHead.find({ status: { $ne: 'Inactive' } }).lean();
         activeNotifs = await Notification.find({ status: { $ne: 'Draft' } }).sort({ createdAt: -1 }).lean();
+        dbVaultCount = await Certificate.countDocuments(certQuery);
       } catch (dbErr) {
         console.warn('DB error in getTrustStats:', dbErr.message);
       }
@@ -40,6 +53,13 @@ const getTrustStats = async (req, res) => {
 
     if (allReceipts === null) {
       allReceipts = getReceipts().filter(r => (r.status || 'Active') !== 'Inactive');
+      if (trustEmail && trustEmail !== 'admin@donationreceipt.in') {
+        const tLower = trustEmail.trim().toLowerCase();
+        allReceipts = allReceipts.filter(r =>
+          (r.trustEmail && r.trustEmail.toLowerCase() === tLower) ||
+          (r.createdBy && r.createdBy.toLowerCase() === tLower)
+        );
+      }
     }
     if (allHeads === null) {
       allHeads = getHeads().filter(h => (h.status || 'Active') !== 'Inactive');
@@ -48,9 +68,22 @@ const getTrustStats = async (req, res) => {
       activeNotifs = getNotifications().filter(n => !n.status || n.status.toLowerCase() !== 'draft');
     }
 
+    let vaultCount = (dbVaultCount !== null && dbVaultCount !== undefined && dbVaultCount > 0) ? dbVaultCount : 0;
+    if (vaultCount === 0) {
+      const fileCerts = getCollection('certificates', []);
+      if (trustEmail && trustEmail !== 'admin@donationreceipt.in') {
+        const tLower = trustEmail.trim().toLowerCase();
+        vaultCount = fileCerts.filter(c =>
+          (c.trustEmail && c.trustEmail.toLowerCase() === tLower) ||
+          (c.createdBy && c.createdBy.toLowerCase() === tLower)
+        ).length;
+      } else {
+        vaultCount = fileCerts.length;
+      }
+    }
+
     const receiptsCount = allReceipts.length;
     const headsCount = allHeads.length;
-    const vaultCount = 0;
 
     const formattedNotifs = activeNotifs.map((n, idx) => ({
       id: (n._id || idx + 1).toString(),
