@@ -9,6 +9,42 @@ const { getCollection, saveCollection } = require('../services/storageService');
 const getRoles = () => getCollection('roles', initialRoles);
 const saveRoles = (list) => saveCollection('roles', list);
 
+const getISTDateString = (d = new Date()) => {
+  try {
+    const date = new Date(d);
+    const options = {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    };
+    const parts = new Intl.DateTimeFormat('en-GB', options).formatToParts(date);
+    let day = '', month = '', year = '', hour = '', minute = '', second = '';
+    for (const p of parts) {
+      if (p.type === 'day') day = p.value;
+      else if (p.type === 'month') month = p.value;
+      else if (p.type === 'year') year = p.value;
+      else if (p.type === 'hour') hour = p.value;
+      else if (p.type === 'minute') minute = p.value;
+      else if (p.type === 'second') second = p.value;
+    }
+    return `${day}-${month}-${year} ${hour}:${minute}:${second}`;
+  } catch (e) {
+    const date = new Date(d);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+  }
+};
+
 // GET all roles (optionally filtered by trustEmail)
 router.get('/', async (req, res) => {
   try {
@@ -75,13 +111,7 @@ router.post('/', async (req, res) => {
     }
 
     const now = new Date();
-    const day = String(now.getDate()).padStart(2, '0');
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const year = now.getFullYear();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    const dateStr = `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+    const dateStr = getISTDateString(now);
 
     let savedRole = null;
 

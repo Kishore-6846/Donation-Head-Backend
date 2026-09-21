@@ -28,17 +28,49 @@ const getHeads = () => {
 const saveHeads = (list) => saveCollection('donationHeads', list);
 
 const formatTime = (d) => {
+  if (!d) return '';
   const date = new Date(d);
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'pm' : 'am';
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-  const strHours = String(hours).padStart(2, '0');
-  return `${day}-${month}-${year} ${strHours}:${minutes}${ampm}`;
+  if (isNaN(date.getTime())) return String(d);
+
+  try {
+    const options = {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    };
+
+    const formatter = new Intl.DateTimeFormat('en-GB', options);
+    const parts = formatter.formatToParts(date);
+    let day = '', month = '', year = '', hour = '', minute = '', dayPeriod = '';
+    for (const p of parts) {
+      if (p.type === 'day') day = p.value;
+      else if (p.type === 'month') month = p.value;
+      else if (p.type === 'year') year = p.value;
+      else if (p.type === 'hour') hour = p.value;
+      else if (p.type === 'minute') minute = p.value;
+      else if (p.type === 'dayPeriod') dayPeriod = p.value;
+    }
+
+    let ampm = (dayPeriod || (date.getHours() >= 12 ? 'pm' : 'am')).toLowerCase().replace(/\./g, '');
+    const strHour = String(hour).padStart(2, '0');
+    const strMin = String(minute).padStart(2, '0');
+    return `${day}-${month}-${year} ${strHour}:${strMin}${ampm}`;
+  } catch (e) {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const strHours = String(hours).padStart(2, '0');
+    return `${day}-${month}-${year} ${strHours}:${minutes}${ampm}`;
+  }
 };
 
 // Formats a donation head object.
