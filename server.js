@@ -25,13 +25,24 @@ const certificateRoutes = require('./routes/certificateRoutes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middlewares
-app.use(cors());
+// Enable trust proxy for Render / Vercel / Cloudflare reverse proxies
+app.set('trust proxy', 1);
+
+// Permissive CORS Configuration for production & local communication
+const corsOptions = {
+  origin: true, // Echo request origin to allow credentials from Vercel or localhost
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Disable caching for all API responses so state updates immediately
-app.use('/api', (req, res, next) => {
+app.use(['/api', '/trust/api', '/superadmin/api', '/superAdmin/api'], (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
@@ -131,11 +142,20 @@ app.get([
   }
 });
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
+// Health check and warm-up endpoints
+app.get(['/api/health', '/health', '/api/ping', '/ping'], (req, res) => {
   res.json({
     status: 'online',
     message: 'Donation Receipt API server is running smoothly',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    name: 'Donation Receipt Backend API',
+    version: '1.0.0',
     timestamp: new Date().toISOString()
   });
 });

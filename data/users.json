@@ -1,5 +1,33 @@
 [
   {
+    "name": "Karthik Raja",
+    "email": "trust_admin_test_1790069510344@example.com",
+    "password": "$2a$10$VmjZ4n3sIuKizxDx0250t.xGC6FKSE2OKTrNAfJVjKTG8VQs1yLxO",
+    "mobile": "9876543210",
+    "trustName": "Test Seva Trust",
+    "address": "",
+    "state": "",
+    "registrationNo": "REG-98765",
+    "panNo": "ABCDE1234F",
+    "website": "",
+    "contactPerson": "Karthik Raja",
+    "contactPersonEmail": "trust_admin_test_1790069510344@example.com",
+    "contactPersonMobile": "9876543210",
+    "logo": "",
+    "role": "Admin",
+    "plan": "Standard",
+    "status": "Active",
+    "paymentStatus": "Paid",
+    "paymentId": "",
+    "orderId": "",
+    "paidAmount": 0,
+    "receiptsCount": 0,
+    "joinedDate": "22/09/2026",
+    "isSuperAdmin": false,
+    "trialEndsAt": "2026-09-24T09:31:50.564Z",
+    "_id": "6ab24b0697e75bce57cf7c71"
+  },
+  {
     "email": "admin@donationreceipt.in",
     "password": "$2a$10$PJZMbYSEmAbXmDogVpNzwe1AkO/gToGocWNfKZtgS2mkNvPwn.Yh.",
     "isSuperAdmin": true,
@@ -220,11 +248,13 @@
     "emailBody": "",
     "receiptPrefix": "GURU/2026-27/",
     "receiptStartNumber": "1",
-    "receiptWatermarkText": "GURU",
+    "receiptWatermarkText": "GURUDEVA",
     "role": "Admin",
     "isSuperAdmin": false,
     "receiptsCount": 1,
     "status": "Active",
-    "designation": "Authorized Signatory"
+    "designation": "Authorized Signatory",
+    "removeLogo": false,
+    "removeSignature": false
   }
 ]
