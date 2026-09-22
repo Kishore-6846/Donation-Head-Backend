@@ -23,7 +23,14 @@ router.post('/login', async (req, res) => {
     let user = null;
 
     if (getIsConnected()) {
-      user = await User.findOne({ email: loginEmail });
+      try {
+        user = await Promise.race([
+          User.findOne({ email: loginEmail }).select('-logo -signature').lean(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Auth DB Query Timeout')), 3500))
+        ]);
+      } catch (dbErr) {
+        console.warn('MongoDB login query error, falling back:', dbErr.message);
+      }
     } else {
       user = registeredUsers.get(loginEmail) || null;
     }
@@ -68,8 +75,10 @@ router.post('/login', async (req, res) => {
       try {
         const upgradedHash = await bcrypt.hash(password, 10);
         user.password = upgradedHash;
-        if (getIsConnected() && user.save) {
-          await user.save();
+        if (getIsConnected() && user._id) {
+          User.updateOne({ _id: user._id }, { $set: { password: upgradedHash } }).catch(upgradeErr => {
+            console.warn('Could not upgrade legacy password hash in background:', upgradeErr.message);
+          });
         }
       } catch (upgradeErr) {
         console.warn('Could not upgrade legacy password hash:', upgradeErr.message);
@@ -292,7 +301,7 @@ router.post('/register', async (req, res) => {
 
     // Check if account with this email already exists
     if (getIsConnected()) {
-      const existing = await User.findOne({ email: regEmail });
+      const existing = await User.findOne({ email: regEmail }).select('_id').lean();
       if (existing) {
         return res.status(400).json({
           success: false,
@@ -423,7 +432,14 @@ router.get('/me', async (req, res) => {
     let user = null;
 
     if (getIsConnected()) {
-      user = await User.findById(decoded.id).select('-password');
+      try {
+        user = await Promise.race([
+          User.findById(decoded.id).select('-password -logo -signature').lean(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Me DB Query Timeout')), 3000))
+        ]);
+      } catch (dbErr) {
+        console.warn('MongoDB /me query error, falling back:', dbErr.message);
+      }
     } else {
       user = registeredUsers.get(decoded.email) || null;
     }
@@ -494,14 +510,14 @@ router.post('/change-password', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword.trim(), salt);
 
-    // 1. Update in MongoDB
+    // 1. Update in MongoDB atomically
     if (getIsConnected()) {
       try {
-        let dbUser = await User.findOne({ email: targetEmail });
-        if (dbUser) {
-          dbUser.password = hashedPassword;
-          await dbUser.save();
-        } else {
+        const updateResult = await User.updateOne(
+          { email: targetEmail },
+          { $set: { password: hashedPassword } }
+        );
+        if (updateResult.matchedCount === 0) {
           // If default account not in DB yet, create it
           const isSuper = Boolean(isSuperAdmin || targetEmail.includes('super') || targetEmail === 'admin@donationreceipt.in');
           await User.create({

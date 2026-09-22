@@ -1,7 +1,7 @@
 [
   {
     "email": "admin@donationreceipt.in",
-    "password": "$2a$10$KYaLWt2JpSOsaw0SQ4EpxeAIiuXfCcC5tDRR/Z/hOTshNNJ6luRO2",
+    "password": "$2a$10$PJZMbYSEmAbXmDogVpNzwe1AkO/gToGocWNfKZtgS2mkNvPwn.Yh.",
     "isSuperAdmin": true,
     "name": "Super Administrator"
   },
@@ -122,7 +122,7 @@
   },
   {
     "email": "admin@gurudevatrust.com",
-    "password": "$2a$10$GB9AWBaZyH5.JbRsjcMKZeeX/SL0l3OiaE7liaV4bou9PYG/34TzS",
+    "password": "$2a$10$34GDoX1ZR1btb3PLM0QWi.BmfOT.UTBJOnqekQFMLqRXAU0f0fzeW",
     "isSuperAdmin": false,
     "name": "Trust Admin",
     "receiptsCount": 1
