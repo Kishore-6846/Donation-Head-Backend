@@ -137,6 +137,9 @@ router.get('/', async (req, res) => {
             fcraNo: u.fcraNo || '',
             section80GRegNo: u.section80GRegNo || '',
             plan: u.plan || 'Standard',
+            extraStaffUsers: Number(u.extraStaffUsers || u.purchasedStaffUsers || 0),
+            purchasedStaffUsers: Number(u.purchasedStaffUsers || 0),
+            paidAmount: Number(u.paidAmount || 0),
             receiptsCount: receiptsCount,
             staffCount: staffCount,
             status: u.status || 'Active',
@@ -405,11 +408,14 @@ router.get('/:id', async (req, res) => {
     if (getIsConnected()) {
       try {
         if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
-          user = await User.findById(id).select('-password -signature').lean();
+          user = await User.findById(id).select('-password').lean();
         } else {
-          user = await User.findOne({ $or: [{ _id: id }, { email: id }] }).select('-password -signature').lean();
+          const cleanEmail = decodeURIComponent(id).trim();
+          user = await User.findOne({ email: new RegExp(`^${cleanEmail}$`, 'i') }).select('-password').lean();
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('DB error in GET /api/users/:id:', e.message);
+      }
     }
 
     if (!user) {
@@ -577,6 +583,57 @@ router.put('/:id', async (req, res) => {
       delete updates.password;
     }
 
+    // Find existing user first to protect signature and logo from accidental overwrite
+    let existingUser = null;
+    if (getIsConnected()) {
+      try {
+        if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
+          existingUser = await User.findById(id).lean();
+        }
+        if (!existingUser) {
+          const cleanEmail = decodeURIComponent(id).trim();
+          existingUser = await User.findOne({
+            $or: [{ _id: id }, { email: new RegExp(`^${cleanEmail}$`, 'i') }]
+          }).lean();
+        }
+      } catch (e) {}
+    }
+
+    const currentUsers = getUsers();
+    const target = decodeURIComponent(id).toLowerCase().trim();
+    const fileUserIndex = currentUsers.findIndex(u =>
+      (u._id && u._id.toString().toLowerCase() === target) ||
+      (u.id && u.id.toString().toLowerCase() === target) ||
+      (u.email && u.email.toLowerCase().trim() === target)
+    );
+    const existingFileUser = fileUserIndex !== -1 ? currentUsers[fileUserIndex] : null;
+    const baseExisting = existingUser || existingFileUser || {};
+
+    // Preserve signature unless explicitly requested to remove
+    if (updates.signature === undefined || updates.signature === null || updates.signature === '') {
+      if (req.body.removeSignature === true) {
+        updates.signature = '';
+      } else if (baseExisting.signature) {
+        updates.signature = baseExisting.signature;
+      }
+    }
+
+    // Preserve logo unless explicitly requested to remove
+    if (updates.logo === undefined || updates.logo === null || updates.logo === '') {
+      if (req.body.removeLogo === true) {
+        updates.logo = '';
+      } else if (baseExisting.logo) {
+        updates.logo = baseExisting.logo;
+      }
+    }
+
+    // Sync trustName and name if one is provided
+    if (updates.trustName && !updates.name) {
+      updates.name = updates.trustName;
+    } else if (updates.name && !updates.trustName) {
+      updates.trustName = updates.name;
+    }
+
     let updated = null;
 
     if (getIsConnected()) {
@@ -597,21 +654,14 @@ router.put('/:id', async (req, res) => {
       }
     }
 
-    const currentUsers = getUsers();
-    const target = decodeURIComponent(id).toLowerCase().trim();
-    const index = currentUsers.findIndex(u =>
-      (u._id && u._id.toString().toLowerCase() === target) ||
-      (u.id && u.id.toString().toLowerCase() === target) ||
-      (u.email && u.email.toLowerCase().trim() === target)
-    );
-    if (index !== -1) {
-      currentUsers[index] = { ...currentUsers[index], ...updates };
-      updated = currentUsers[index];
+    if (fileUserIndex !== -1) {
+      currentUsers[fileUserIndex] = { ...currentUsers[fileUserIndex], ...updates };
+      if (!updated) updated = currentUsers[fileUserIndex];
       saveUsers(currentUsers);
     } else {
       const newUser = { _id: id, ...updates };
       currentUsers.push(newUser);
-      updated = newUser;
+      if (!updated) updated = newUser;
       saveUsers(currentUsers);
     }
 

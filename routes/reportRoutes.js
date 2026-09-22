@@ -609,10 +609,11 @@ router.get('/superadmin', async (req, res) => {
 
     // Plan pricing and staff limits map
     const planConfigMap = {
-      'starter': { name: 'Starter', price: 1999, staffLimit: 1, badge: 'Starter' },
-      'standard': { name: 'Standard', price: 4000, staffLimit: 4, badge: 'Popular' },
-      'advanced': { name: 'Advanced', price: 7000, staffLimit: 9, badge: 'Most Popular' },
-      'enterprise': { name: 'Enterprise', price: 10000, staffLimit: 999, badge: 'Best Value' }
+      'basic': { name: 'Basic', price: 1200, staffLimit: 1, badge: 'Basic' },
+      'starter': { name: 'Basic', price: 1200, staffLimit: 1, badge: 'Basic' },
+      'standard': { name: 'Standard', price: 2500, staffLimit: 2, badge: 'Standard' },
+      'advanced': { name: 'Standard', price: 2500, staffLimit: 2, badge: 'Standard' },
+      'enterprise': { name: 'Standard', price: 2500, staffLimit: 2, badge: 'Standard' }
     };
 
     // Deduplicate registered admins by email
@@ -650,9 +651,9 @@ router.get('/superadmin', async (req, res) => {
       }
 
       const planKey = (u.plan || 'Standard').toLowerCase().trim();
-      const planCfg = planConfigMap[planKey] || { name: u.plan || 'Standard', price: 4000, staffLimit: 4, badge: 'Active' };
+      const planCfg = planConfigMap[planKey] || { name: u.plan || 'Standard', price: 2500, staffLimit: 2, badge: 'Standard' };
 
-      const basePlanPrice = Number(planCfg.price) || 4000;
+      const basePlanPrice = Number(planCfg.price) || 2500;
       const includedStaff = planCfg.staffLimit;
       const extraStaff = (includedStaff === 999) ? 0 : Math.max(0, trustStaffCount - includedStaff);
       const extraStaffRevenue = extraStaff * 500; // ₹500 per extra staff license
@@ -703,7 +704,7 @@ router.get('/superadmin', async (req, res) => {
     });
 
     const dynamicPlanBreakdown = Object.keys(planGroups).map(p => ({
-      plan: `${p} Plan (₹${(planConfigMap[p.toLowerCase()]?.price || 4000).toLocaleString('en-IN')})`,
+      plan: `${p} Plan (₹${(planConfigMap[p.toLowerCase()]?.price || 2500).toLocaleString('en-IN')})`,
       count: planGroups[p].count,
       revenue: planGroups[p].revenue,
       percentage: grandTotalRevenue > 0 ? Number(((planGroups[p].revenue / grandTotalRevenue) * 100).toFixed(1)) : 0

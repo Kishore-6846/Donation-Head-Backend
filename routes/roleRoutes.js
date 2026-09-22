@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getIsConnected } = require('../config/db');
 const Role = require('../models/Role');
+const Staff = require('../models/Staff');
 const { initialRoles } = require('../data/seedData');
 
 const { getCollection, saveCollection } = require('../services/storageService');
@@ -76,6 +77,8 @@ const getISTDateString = (d = new Date()) => {
   }
 };
 
+const escapeRegex = (string) => (string || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // GET all roles (optionally filtered by trustEmail)
 router.get('/', async (req, res) => {
   try {
@@ -111,16 +114,16 @@ router.get('/', async (req, res) => {
           ...r,
           created: r.createdAt ? getISTDateString(r.createdAt) : (r.created ? getISTDateString(r.created) : getISTDateString(new Date()))
         };
-        roleMap.set(r.roleName.toLowerCase(), item);
+        roleMap.set(r.roleName.trim().toLowerCase(), item);
       }
     });
     (localRoles || []).forEach(r => {
-      if (r && r.roleName && !roleMap.has(r.roleName.toLowerCase())) {
+      if (r && r.roleName && !roleMap.has(r.roleName.trim().toLowerCase())) {
         const item = {
           ...r,
           created: r.createdAt ? getISTDateString(r.createdAt) : (r.created ? getISTDateString(r.created) : getISTDateString(new Date()))
         };
-        roleMap.set(r.roleName.toLowerCase(), item);
+        roleMap.set(r.roleName.trim().toLowerCase(), item);
       }
     });
 
@@ -131,7 +134,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST create or upsert a new role
+// POST create a new role (strict case-insensitive duplicate check)
 router.post('/', async (req, res) => {
   try {
     const {
@@ -151,6 +154,38 @@ router.post('/', async (req, res) => {
       });
     }
 
+    const emailLower = (trustEmail || '').trim().toLowerCase();
+
+    // Check if role with this name already exists in MongoDB (case-insensitive)
+    let existingInDb = null;
+    if (getIsConnected()) {
+      try {
+        const filter = {
+          roleName: { $regex: new RegExp(`^${escapeRegex(cleanRoleName)}$`, 'i') }
+        };
+        if (emailLower) {
+          filter.$or = [{ trustEmail: emailLower }, { trustEmail: '' }, { trustEmail: { $exists: false } }];
+        }
+        existingInDb = await Role.findOne(filter).lean();
+      } catch (dbErr) {
+        console.error('Error checking duplicate role in MongoDB:', dbErr);
+      }
+    }
+
+    // Check if role exists in fallback storage
+    const currentRoles = getRoles();
+    const existingInLocal = currentRoles.find(
+      r => r.roleName && r.roleName.trim().toLowerCase() === cleanRoleName.toLowerCase() &&
+           (!emailLower || !r.trustEmail || r.trustEmail.toLowerCase() === emailLower)
+    );
+
+    if (existingInDb || existingInLocal) {
+      return res.status(400).json({
+        success: false,
+        message: `A member role with the name "${cleanRoleName}" already exists (case-insensitive). Duplicate roles like "${roleName}" are not allowed.`
+      });
+    }
+
     const now = new Date();
     const dateStr = getISTDateString(now);
 
@@ -158,61 +193,34 @@ router.post('/', async (req, res) => {
 
     if (getIsConnected()) {
       try {
-        const emailLower = (trustEmail || '').trim().toLowerCase();
-        // Check if role with this name already exists
-        const filter = {
-          roleName: { $regex: new RegExp(`^${cleanRoleName}$`, 'i') }
-        };
-        if (emailLower) {
-          filter.$or = [{ trustEmail: emailLower }, { trustEmail: '' }, { trustEmail: { $exists: false } }];
-        }
-
-        const existing = await Role.findOne(filter);
-        if (existing) {
-          existing.permissions = permissions;
-          if (description) existing.description = description.trim();
-          if (emailLower && !existing.trustEmail) existing.trustEmail = emailLower;
-          if (trustName && !existing.trustName) existing.trustName = trustName;
-          savedRole = await existing.save();
-        } else {
-          savedRole = await Role.create({
-            roleName: cleanRoleName,
-            description: description.trim(),
-            permissions,
-            created: dateStr,
-            trustEmail: emailLower,
-            trustName: trustName || '',
-            trustId: trustId || ''
-          });
-        }
+        savedRole = await Role.create({
+          roleName: cleanRoleName,
+          description: description.trim(),
+          permissions,
+          created: dateStr,
+          trustEmail: emailLower,
+          trustName: trustName || '',
+          trustId: trustId || ''
+        });
       } catch (dbErr) {
         console.error('Error saving role to MongoDB:', dbErr);
       }
     }
 
     // Always update fallback storage
-    const current = getRoles();
-    const existingIdx = current.findIndex(
-      r => r.roleName && r.roleName.toLowerCase() === cleanRoleName.toLowerCase()
-    );
-
     const fallbackRole = {
       _id: savedRole?._id?.toString() || `role_${Date.now()}`,
       roleName: cleanRoleName,
       description: description.trim(),
       permissions,
       created: dateStr,
-      trustEmail: (trustEmail || '').trim().toLowerCase(),
+      trustEmail: emailLower,
       trustName: trustName || '',
       trustId: trustId || ''
     };
 
-    if (existingIdx !== -1) {
-      current[existingIdx] = { ...current[existingIdx], ...fallbackRole };
-    } else {
-      current.unshift(fallbackRole);
-    }
-    saveRoles(current);
+    currentRoles.unshift(fallbackRole);
+    saveRoles(currentRoles);
 
     return res.status(201).json({
       success: true,
@@ -235,12 +243,18 @@ router.get('/:id', async (req, res) => {
     let role = null;
     if (getIsConnected()) {
       try {
-        role = await Role.findById(id).lean();
+        if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
+          role = await Role.findById(id).lean();
+        }
+        if (!role) {
+          const cleanName = decodeURIComponent(id).trim();
+          role = await Role.findOne({ roleName: new RegExp(`^${escapeRegex(cleanName)}$`, 'i') }).lean();
+        }
       } catch (e) {}
     }
     if (!role) {
       const all = getRoles();
-      role = all.find(r => r._id === id || r.roleName === id);
+      role = all.find(r => r._id === id || r.roleName?.toLowerCase() === id.toLowerCase());
     }
     if (!role) {
       return res.status(404).json({ success: false, message: 'Role not found' });
@@ -251,32 +265,90 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT update role
+// PUT update role (case-insensitive duplicate check against other roles)
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { roleName, description, permissions } = req.body;
+    const { roleName, description, permissions, trustEmail } = req.body;
     let updated = null;
     const cleanRoleName = roleName !== undefined ? (roleName || '').replace(/[^a-zA-Z\s]/g, '').trim() : undefined;
 
+    if (cleanRoleName !== undefined) {
+      if (!cleanRoleName) {
+        return res.status(400).json({
+          success: false,
+          message: 'Role Name cannot be empty and must contain letters and spaces only'
+        });
+      }
+
+      // Check if another role already has this name case-insensitively
+      if (getIsConnected()) {
+        try {
+          const dupFilter = {
+            roleName: { $regex: new RegExp(`^${escapeRegex(cleanRoleName)}$`, 'i') }
+          };
+          if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
+            dupFilter._id = { $ne: id };
+          }
+          if (trustEmail) {
+            dupFilter.$or = [{ trustEmail: trustEmail.trim().toLowerCase() }, { trustEmail: '' }, { trustEmail: { $exists: false } }];
+          }
+          const dupRole = await Role.findOne(dupFilter).lean();
+          if (dupRole && String(dupRole._id) !== String(id)) {
+            return res.status(400).json({
+              success: false,
+              message: `Another member role with the name "${cleanRoleName}" already exists (case-insensitive).`
+            });
+          }
+        } catch (e) {}
+      }
+
+      const current = getRoles();
+      const dupLocal = current.find(
+        r => r._id !== id && r.roleName?.toLowerCase() !== id.toLowerCase() &&
+             r.roleName && r.roleName.trim().toLowerCase() === cleanRoleName.toLowerCase()
+      );
+      if (dupLocal) {
+        return res.status(400).json({
+          success: false,
+          message: `Another member role with the name "${cleanRoleName}" already exists (case-insensitive).`
+        });
+      }
+    }
+
     if (getIsConnected()) {
       try {
-        updated = await Role.findByIdAndUpdate(
-          id,
-          {
-            $set: {
-              ...(cleanRoleName !== undefined ? { roleName: cleanRoleName } : {}),
-              ...(description !== undefined ? { description } : {}),
-              ...(permissions ? { permissions } : {})
-            }
-          },
-          { new: true }
-        ).lean();
+        if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
+          updated = await Role.findByIdAndUpdate(
+            id,
+            {
+              $set: {
+                ...(cleanRoleName !== undefined ? { roleName: cleanRoleName } : {}),
+                ...(description !== undefined ? { description } : {}),
+                ...(permissions ? { permissions } : {})
+              }
+            },
+            { new: true }
+          ).lean();
+        } else {
+          const cleanName = decodeURIComponent(id).trim();
+          updated = await Role.findOneAndUpdate(
+            { roleName: new RegExp(`^${escapeRegex(cleanName)}$`, 'i') },
+            {
+              $set: {
+                ...(cleanRoleName !== undefined ? { roleName: cleanRoleName } : {}),
+                ...(description !== undefined ? { description } : {}),
+                ...(permissions ? { permissions } : {})
+              }
+            },
+            { new: true }
+          ).lean();
+        }
       } catch (e) {}
     }
 
     const current = getRoles();
-    const idx = current.findIndex(r => r._id === id || r.roleName === id);
+    const idx = current.findIndex(r => r._id === id || r.roleName?.toLowerCase() === id.toLowerCase());
     if (idx !== -1) {
       current[idx] = {
         ...current[idx],
@@ -303,20 +375,76 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const { trustEmail, trustId } = req.query;
+
+    let targetRoleName = '';
+    let roleDoc = null;
+
     if (getIsConnected()) {
       try {
-        await Role.findByIdAndDelete(id);
-      } catch (e) {}
-      try {
-        // Also try deleting by roleName if id was a name string
-        await Role.deleteMany({ roleName: id });
+        if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
+          roleDoc = await Role.findById(id).lean();
+        }
+        if (!roleDoc) {
+          const cleanName = decodeURIComponent(id).trim();
+          roleDoc = await Role.findOne({ roleName: new RegExp(`^${escapeRegex(cleanName)}$`, 'i') }).lean();
+        }
       } catch (e) {}
     }
+
+    if (!roleDoc) {
+      const current = getRoles();
+      roleDoc = current.find(r => r._id === id || r.roleName?.toLowerCase() === id.toLowerCase() || r.id === id);
+    }
+
+    targetRoleName = roleDoc?.roleName || decodeURIComponent(id).trim();
+
+    // Check if any active staff members are assigned to this role
+    let activeStaffCount = 0;
+    if (getIsConnected()) {
+      try {
+        const staffQuery = {
+          role: new RegExp(`^${escapeRegex(targetRoleName)}$`, 'i'),
+          status: 'Active'
+        };
+        if (trustEmail) {
+          staffQuery.trustEmail = new RegExp(`^${escapeRegex(trustEmail.trim())}$`, 'i');
+        }
+        activeStaffCount = await Staff.countDocuments(staffQuery);
+      } catch (e) {}
+    }
+
+    if (activeStaffCount === 0) {
+      const allStaff = getCollection('staff', []);
+      const matched = allStaff.filter(s =>
+        (s.role || '').trim().toLowerCase() === targetRoleName.toLowerCase() &&
+        (s.status || 'Active').toLowerCase() === 'active' &&
+        (!trustEmail || (s.trustEmail || '').toLowerCase() === trustEmail.toLowerCase())
+      );
+      activeStaffCount = matched.length;
+    }
+
+    if (activeStaffCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete role "${targetRoleName}" because there are ${activeStaffCount} active staff member(s) assigned to it. Please deactivate, reassign, or remove the active staff members first.`
+      });
+    }
+
+    if (getIsConnected()) {
+      try {
+        if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
+          await Role.findByIdAndDelete(id);
+        }
+        await Role.deleteMany({ roleName: new RegExp(`^${escapeRegex(targetRoleName)}$`, 'i') });
+      } catch (e) {}
+    }
+
     const current = getRoles();
-    const filtered = current.filter(r => r._id !== id && r.roleName !== id);
+    const filtered = current.filter(r => r._id !== id && r.roleName?.trim().toLowerCase() !== targetRoleName.trim().toLowerCase());
     saveRoles(filtered);
 
-    return res.json({ success: true, message: 'Role removed' });
+    return res.json({ success: true, message: 'Role removed successfully' });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

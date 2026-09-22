@@ -3,11 +3,47 @@ const router = express.Router();
 const { getIsConnected } = require('../config/db');
 const Staff = require('../models/Staff');
 const User = require('../models/User');
+const Role = require('../models/Role');
+const { initialRoles } = require('../data/seedData');
 const { getCollection, saveCollection } = require('../services/storageService');
 
 const initialStaff = [];
 const getStaff = () => getCollection('staff', initialStaff);
 const saveStaff = (list) => saveCollection('staff', list);
+
+const escapeRegex = (string) => (string || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Helper to verify if a role exists case-insensitively in Member Roles
+const checkRoleExists = async (roleName, trustEmail) => {
+  if (!roleName) return false;
+  const cleanRole = roleName.trim();
+  if (!cleanRole) return false;
+  const emailLower = (trustEmail || '').trim().toLowerCase();
+
+  // 1. Check MongoDB
+  if (getIsConnected()) {
+    try {
+      const filter = {
+        roleName: { $regex: new RegExp(`^${escapeRegex(cleanRole)}$`, 'i') }
+      };
+      if (emailLower) {
+        filter.$or = [{ trustEmail: emailLower }, { trustEmail: '' }, { trustEmail: { $exists: false } }, { trustEmail: null }];
+      }
+      const found = await Role.findOne(filter).lean();
+      if (found) return true;
+    } catch (e) {
+      console.warn('DB check role exists error:', e.message);
+    }
+  }
+
+  // 2. Check disk / fallback storage
+  const diskRoles = getCollection('roles', initialRoles || []);
+  const foundLocal = diskRoles.find(r =>
+    r.roleName && r.roleName.trim().toLowerCase() === cleanRole.toLowerCase() &&
+    (!emailLower || !r.trustEmail || r.trustEmail.toLowerCase() === emailLower)
+  );
+  return Boolean(foundLocal);
+};
 
 // Helper to update trust staff count
 const syncTrustStaffCount = async (trustEmail, trustId, trustName) => {
@@ -213,11 +249,18 @@ router.post('/', async (req, res) => {
     if (trustUser) {
       const planName = trustUser.plan || 'Standard';
       const planLower = planName.toLowerCase();
-      let baseAllowed = 4; // Standard plan default is 4
-      if (planLower.includes('enterprise')) baseAllowed = 999;
-      else if (planLower.includes('advanced')) baseAllowed = 9;
-      else if (planLower.includes('starter')) baseAllowed = 1;
-      else baseAllowed = 4;
+      let baseAllowed = 2; // Standard plan default is 2 staff users
+      if (planLower.includes('basic') || planLower.includes('starter')) {
+        baseAllowed = 1;
+      } else if (planLower.includes('standard')) {
+        baseAllowed = 2;
+      } else if (planLower.includes('advanced')) {
+        baseAllowed = 9;
+      } else if (planLower.includes('enterprise')) {
+        baseAllowed = 999;
+      } else {
+        baseAllowed = 2;
+      }
 
       const extraPurchased = Number(trustUser.extraStaffUsers || trustUser.purchasedStaffUsers || 0);
       const totalAllowed = baseAllowed === 999 ? 999 : (baseAllowed + extraPurchased);
@@ -252,13 +295,28 @@ router.post('/', async (req, res) => {
     }
 
     let createdMember = null;
+    const staffRole = (role || 'Staff Member').trim();
+    const staffStatus = status || 'Active';
+    const emailLower = trustEmail ? trustEmail.trim().toLowerCase() : '';
+
+    // Check if role exists in Member Roles when adding an Active staff member
+    if (staffStatus === 'Active') {
+      const roleExists = await checkRoleExists(staffRole, emailLower);
+      if (!roleExists) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot add active staff member because the role "${staffRole}" does not exist in Member Roles. Please create this role in Member Roles first or add the staff as Inactive.`
+        });
+      }
+    }
+
     const memberData = {
       name: cleanName,
       email: cleanEmail,
       phone: cleanPhone,
-      role: role.trim() || 'Staff Member',
-      status: status || 'Active',
-      trustEmail: trustEmail ? trustEmail.trim().toLowerCase() : '',
+      role: staffRole,
+      status: staffStatus,
+      trustEmail: emailLower,
       trustId: trustId ? trustId.toString() : '',
       trustName: trustName ? trustName.trim() : ''
     };
@@ -370,10 +428,62 @@ router.put('/:id', async (req, res) => {
       }
     }
 
+    // Fetch existing staff to verify current status/role
+    let existingStaff = null;
+    if (getIsConnected()) {
+      try {
+        if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
+          existingStaff = await Staff.findById(id).lean();
+        }
+        if (!existingStaff) {
+          const cleanEmail = decodeURIComponent(id).trim().toLowerCase();
+          existingStaff = await Staff.findOne({
+            $or: [{ _id: id }, { email: new RegExp(`^${escapeRegex(cleanEmail)}$`, 'i') }]
+          }).lean();
+        }
+      } catch (e) {}
+    }
+    if (!existingStaff) {
+      const allStaff = getStaff();
+      existingStaff = allStaff.find(s =>
+        s._id === id || s.id === id || (s.email && s.email.toLowerCase() === decodeURIComponent(id).trim().toLowerCase())
+      );
+    }
+
+    const targetStatus = updateData.status !== undefined ? updateData.status : (existingStaff?.status || 'Active');
+    const targetRole = (updateData.role !== undefined ? updateData.role : (existingStaff?.role || '')).trim();
+    const effectiveTrustEmail = updateData.trustEmail || existingStaff?.trustEmail || '';
+
+    // If activating staff or keeping active, ensure the assigned role exists in Member Roles
+    if (targetStatus === 'Active') {
+      if (!targetRole) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot activate staff member without an assigned role.'
+        });
+      }
+      const roleExists = await checkRoleExists(targetRole, effectiveTrustEmail);
+      if (!roleExists) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot activate staff member because their assigned role "${targetRole}" does not exist in Member Roles. Please recreate this role in Member Roles or assign an existing role before activating.`
+        });
+      }
+    }
+
     let updatedMember = null;
     if (getIsConnected()) {
       try {
-        updatedMember = await Staff.findByIdAndUpdate(id, { $set: updateData }, { new: true });
+        if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
+          updatedMember = await Staff.findByIdAndUpdate(id, { $set: updateData }, { new: true });
+        } else {
+          const cleanEmail = decodeURIComponent(id).trim();
+          updatedMember = await Staff.findOneAndUpdate(
+            { $or: [{ _id: id }, { email: new RegExp(`^${escapeRegex(cleanEmail)}$`, 'i') }] },
+            { $set: updateData },
+            { new: true }
+          );
+        }
         if (updatedMember) {
           await syncTrustStaffCount(updatedMember.trustEmail, updatedMember.trustId, updatedMember.trustName);
         }
@@ -394,7 +504,12 @@ router.put('/:id', async (req, res) => {
     }
 
     const all = getStaff();
-    const idx = all.findIndex(s => s._id === id || s.id === id);
+    const cleanId = String(id || '').trim().toLowerCase();
+    const idx = all.findIndex(s =>
+      (s._id && String(s._id).toLowerCase() === cleanId) ||
+      (s.id && String(s.id).toLowerCase() === cleanId) ||
+      (s.email && s.email.toLowerCase() === cleanId)
+    );
     if (idx !== -1) {
       all[idx] = { ...all[idx], ...updateData };
       saveStaff(all);

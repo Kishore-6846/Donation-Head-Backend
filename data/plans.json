@@ -1,89 +1,38 @@
 [
   {
-    "_id": "plan_standard",
-    "name": "Standard",
-    "code": "standard",
-    "price": 4000,
-    "billingCycle": "Annual",
-    "validityDays": 365,
-    "receiptLimit": "Unlimited Receipts",
-    "staffUserLimit": "4 Staff Users",
-    "features": [
-      "Unlimited Donation Receipts",
-      "4 Staff User Logins",
-      "WhatsApp Receipt Sharing",
-      "Form No. 10BD Compliance Reports",
-      "80G Tax Exemption Certificates",
-      "Standard Email & Chat Support"
-    ],
-    "badge": "Popular",
-    "description": "Perfect for small to medium trusts and non-profit organizations.",
-    "status": "Active",
-    "createdAt": "2026-01-10T10:00:00.000Z"
-  },
-  {
-    "_id": "plan_advanced",
-    "name": "Advanced",
-    "code": "advanced",
-    "price": 7000,
-    "billingCycle": "Annual",
-    "validityDays": 365,
-    "receiptLimit": "Unlimited Receipts",
-    "staffUserLimit": "9 Staff Users",
-    "features": [
-      "Everything in Standard Plan",
-      "9 Staff User Logins with Custom Roles",
-      "Bulk Receipt PDF Downloader (ZIP)",
-      "Custom Trust Logo & Digital Signature",
-      "Automated WhatsApp Notification Alerts",
-      "Priority Phone & WhatsApp Support"
-    ],
-    "badge": "Most Popular",
-    "description": "Ideal for growing trusts managing multiple drives and active donor communities.",
-    "status": "Active",
-    "createdAt": "2026-01-15T10:00:00.000Z"
-  },
-  {
-    "_id": "plan_enterprise",
-    "name": "Enterprise",
-    "code": "enterprise",
-    "price": 10000,
-    "billingCycle": "Annual",
-    "validityDays": 365,
-    "receiptLimit": "Unlimited Receipts",
-    "staffUserLimit": "Unlimited Staff",
-    "features": [
-      "Everything in Advanced Plan",
-      "Unlimited Staff Member Logins",
-      "Dedicated Account Manager",
-      "Custom Form 10BD Format Adjustments",
-      "Multi-Branch & Multi-Chapter Vault",
-      "24/7 VIP Priority Hotline"
-    ],
-    "badge": "Best Value",
-    "description": "Designed for large charitable trusts, multi-state NGOs, and educational foundations.",
-    "status": "Active",
-    "createdAt": "2026-01-20T10:00:00.000Z"
-  },
-  {
     "_id": "plan_starter",
-    "name": "Starter",
-    "code": "starter",
-    "price": 1999,
+    "name": "Basic",
+    "code": "basic",
+    "price": 1200,
     "billingCycle": "Annual",
     "validityDays": 365,
-    "receiptLimit": "500 Receipts/Year",
+    "receiptLimit": "Unlimited",
     "staffUserLimit": "1 Staff User",
     "features": [
-      "500 Donation Receipts per year",
-      "1 Admin User Access",
-      "Instant PDF Receipt Generation",
-      "Head-Wise & Donor Reports",
-      "Standard Email Support"
+      "1 Admin",
+      "1 Staff"
     ],
     "badge": "Basic",
     "description": "Entry-level package for newly registered trusts starting their digital journey.",
     "status": "Active",
     "createdAt": "2026-02-01T10:00:00.000Z"
+  },
+  {
+    "_id": "plan_standard",
+    "name": "Standard",
+    "code": "standard",
+    "price": 2500,
+    "billingCycle": "Annual",
+    "validityDays": 365,
+    "receiptLimit": "Unlimited Receipts",
+    "staffUserLimit": "2 Staff Users",
+    "features": [
+      "1 Admin",
+      "2 Staffs"
+    ],
+    "badge": "Standard",
+    "description": "Perfect for small to medium trusts and non-profit organizations.",
+    "status": "Active",
+    "createdAt": "2026-01-10T10:00:00.000Z"
   }
 ]

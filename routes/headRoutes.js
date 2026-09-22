@@ -73,31 +73,25 @@ const formatTime = (d) => {
   }
 };
 
+const escapeRegex = (string) => (string || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // Formats a donation head object.
-// If created by an admin (not super admin, not system, not global), appends the trust name in brackets.
+// Global heads: clean name without brackets.
+// Trust Admin custom heads: appends ' (Admin)'.
 const formatHead = (h) => {
   if (!h) return null;
-  const isGlobal = Boolean(h.isGlobal);
+  const isGlobal = Boolean(h.isGlobal === true || h.createdBy === 'Super Admin' || h.createdBy === 'System');
   const createdBy = String(h.createdBy || 'Admin').trim();
-  let trustName = String(h.trustName || '').trim();
+  const trustName = String(h.trustName || '').trim();
+  const trustEmail = String(h.trustEmail || '').trim().toLowerCase();
 
-  // If not global and no trustName explicitly stored:
-  if (!isGlobal && !trustName) {
-    if (createdBy && !['Super Admin', 'System', 'Admin'].includes(createdBy)) {
-      trustName = createdBy;
-    } else {
-      trustName = 'MahaRaja-Trust-002';
-    }
-  }
-
-  // Base raw name: strip any already attached trailing brackets to prevent duplicate brackets
-  let rawName = String(h.name || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+  // Base raw name: strip any already attached trailing brackets
+  let rawName = String(h.rawName || h.name || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
   if (!rawName) rawName = String(h.name || '').trim();
 
   let displayName = rawName;
-  const isCreatedByAdmin = !isGlobal && createdBy !== 'Super Admin' && createdBy !== 'System';
-  if (isCreatedByAdmin && trustName) {
-    displayName = `${rawName} (${trustName})`;
+  if (!isGlobal) {
+    displayName = `${rawName} (Admin)`;
   }
 
   return {
@@ -107,17 +101,18 @@ const formatHead = (h) => {
     description: h.description || '',
     status: h.status || 'Active',
     isGlobal: isGlobal,
+    isCustom: !isGlobal,
     createdBy: createdBy,
     trustName: trustName,
-    trustEmail: h.trustEmail || '',
+    trustEmail: trustEmail,
     hiddenForTrusts: Array.isArray(h.hiddenForTrusts) ? h.hiddenForTrusts : [],
     formattedDate: h.formattedDate || formatTime(h.createdAt || new Date()),
     createdAt: h.createdAt || new Date()
   };
 };
 
-// Deduplicates a list of heads by both ID and base name to ensure no duplicate shows in any panel.
-// If filterTrusts is passed (e.g. array of trust names/emails), hides heads that this trust deleted.
+// Deduplicates a list of heads by ID and raw base name.
+// If filterTrusts is passed, hides heads that this trust deleted.
 const deduplicateHeads = (list, filterTrusts = []) => {
   const trustsArray = Array.isArray(filterTrusts)
     ? filterTrusts.filter(Boolean).map(t => String(t).trim().toLowerCase())
@@ -151,53 +146,106 @@ const deduplicateHeads = (list, filterTrusts = []) => {
 };
 
 // GET all donation heads
+// SuperAdmin: ONLY platform/global donation heads.
+// Trust Admin: Global heads (not hidden) + Custom heads created by this trust only.
 router.get('/', async (req, res) => {
   try {
     const { search = '', page = 1, limit = 100, trustName = '', trustEmail = '', isSuperAdmin = '' } = req.query;
 
     const isSuper = isSuperAdmin === 'true' || isSuperAdmin === true;
+    const emailLower = (trustEmail || '').trim().toLowerCase();
+    const nameLower = (trustName || '').trim().toLowerCase();
+
     const filterTrusts = !isSuper
       ? [trustName, trustEmail].filter(t => t && String(t).trim()).map(t => String(t).trim())
       : [];
 
-    if (getIsConnected()) {
-      const query = search
-        ? { name: { $regex: search, $options: 'i' } }
-        : {};
-
-      const heads = await DonationHead.find(query)
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(Number(limit))
-        .lean();
-
-      const rawList = (heads && heads.length > 0) ? heads : (search ? [] : getHeads());
-      const returnData = deduplicateHeads(rawList, filterTrusts);
-
-      return res.json({
-        success: true,
-        data: returnData,
-        total: returnData.length,
-        page: Number(page),
-        limit: Number(limit)
-      });
+    let dbQuery = {};
+    if (isSuper) {
+      dbQuery = {
+        $or: [
+          { isGlobal: true },
+          { createdBy: 'Super Admin' },
+          { createdBy: 'System' }
+        ]
+      };
     } else {
-      let heads = getHeads();
+      const trustOrClauses = [];
+      if (emailLower) {
+        trustOrClauses.push({ trustEmail: new RegExp(`^${escapeRegex(emailLower)}$`, 'i') });
+        trustOrClauses.push({ createdBy: new RegExp(`^${escapeRegex(emailLower)}$`, 'i') });
+      }
+      if (nameLower && nameLower !== 'trust organization') {
+        trustOrClauses.push({ trustName: new RegExp(`^${escapeRegex(nameLower)}$`, 'i') });
+        trustOrClauses.push({ createdBy: new RegExp(`^${escapeRegex(nameLower)}$`, 'i') });
+      }
+
+      dbQuery = {
+        $or: [
+          { isGlobal: true },
+          { createdBy: 'Super Admin' },
+          { createdBy: 'System' },
+          ...(trustOrClauses.length > 0 ? [{ $and: [{ isGlobal: { $ne: true } }, { $or: trustOrClauses }] }] : [])
+        ]
+      };
+    }
+
+    if (search) {
+      const sRegex = new RegExp(escapeRegex(search), 'i');
+      dbQuery = { $and: [dbQuery, { $or: [{ name: sRegex }, { description: sRegex }] }] };
+    }
+
+    let rawList = [];
+    if (getIsConnected()) {
+      try {
+        const heads = await DonationHead.find(dbQuery)
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(Number(limit))
+          .lean();
+        if (heads && heads.length > 0) {
+          rawList = heads;
+        }
+      } catch (dbErr) {
+        console.warn('MongoDB error fetching heads:', dbErr.message);
+      }
+    }
+
+    if (rawList.length === 0) {
+      let diskHeads = getHeads();
+      if (isSuper) {
+        diskHeads = diskHeads.filter(h => h.isGlobal === true || h.createdBy === 'Super Admin' || h.createdBy === 'System');
+      } else {
+        diskHeads = diskHeads.filter(h => {
+          const isGlobal = h.isGlobal === true || h.createdBy === 'Super Admin' || h.createdBy === 'System';
+          if (isGlobal) return true;
+          const hEmail = (h.trustEmail || '').trim().toLowerCase();
+          const hTrust = (h.trustName || '').trim().toLowerCase();
+          const hCreated = (h.createdBy || '').trim().toLowerCase();
+          const matchEmail = emailLower && (hEmail === emailLower || hCreated === emailLower);
+          const matchTrust = nameLower && nameLower !== 'trust organization' && (hTrust === nameLower || hCreated === nameLower);
+          return Boolean(matchEmail || matchTrust);
+        });
+      }
       if (search) {
-        heads = heads.filter(h =>
-          h.name.toLowerCase().includes(search.toLowerCase()) ||
-          (h.description && h.description.toLowerCase().includes(search.toLowerCase()))
+        const s = search.toLowerCase();
+        diskHeads = diskHeads.filter(h =>
+          (h.name && h.name.toLowerCase().includes(s)) ||
+          (h.description && h.description.toLowerCase().includes(s))
         );
       }
-      const returnData = deduplicateHeads(heads, filterTrusts);
-      return res.json({
-        success: true,
-        data: returnData,
-        total: returnData.length,
-        page: 1,
-        limit: 100
-      });
+      rawList = diskHeads;
     }
+
+    const returnData = deduplicateHeads(rawList, filterTrusts);
+
+    return res.json({
+      success: true,
+      data: returnData,
+      total: returnData.length,
+      page: Number(page),
+      limit: Number(limit)
+    });
   } catch (error) {
     console.error('Error fetching heads:', error);
     return res.status(500).json({ success: false, message: error.message, data: deduplicateHeads(getHeads()) });
@@ -208,23 +256,22 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    let head = null;
     if (getIsConnected()) {
-      const head = await DonationHead.findById(id);
-      if (!head) {
-        return res.status(404).json({ success: false, message: 'Head not found' });
-      }
-      return res.json({
-        success: true,
-        data: formatHead(head)
-      });
-    } else {
-      const heads = getHeads();
-      const head = heads.find(h => h._id === id);
-      if (!head) {
-        return res.status(404).json({ success: false, message: 'Head not found' });
-      }
-      return res.json({ success: true, data: formatHead(head) });
+      try {
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          head = await DonationHead.findById(id).lean();
+        }
+      } catch (e) {}
     }
+    if (!head) {
+      const heads = getHeads();
+      head = heads.find(h => h._id === id || String(h._id) === String(id));
+    }
+    if (!head) {
+      return res.status(404).json({ success: false, message: 'Head not found' });
+    }
+    return res.json({ success: true, data: formatHead(head) });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -233,7 +280,7 @@ router.get('/:id', async (req, res) => {
 // POST add new donation head
 router.post('/', async (req, res) => {
   try {
-    const { name, description = '', isGlobal = false, createdBy = 'Admin', trustName = '', trustEmail = '' } = req.body;
+    const { name, description = '', isGlobal = false, isSuperAdmin = false, createdBy = 'Admin', trustName = '', trustEmail = '' } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Donation Head name is required' });
     }
@@ -241,24 +288,21 @@ router.post('/', async (req, res) => {
     let cleanName = name.replace(/\s*\([^)]*\)\s*$/, '').trim();
     if (!cleanName) cleanName = name.trim();
 
-    let assignedTrust = trustName ? trustName.trim() : '';
-    if (!isGlobal && !assignedTrust && createdBy && !['Super Admin', 'System', 'Admin'].includes(createdBy)) {
-      assignedTrust = createdBy.trim();
-    }
-    if (!isGlobal && !assignedTrust) {
-      assignedTrust = 'MahaRaja-Trust-002';
-    }
+    const isSuper = isSuperAdmin === true || isSuperAdmin === 'true' || isGlobal === true || createdBy === 'Super Admin';
+    const assignedTrust = isSuper ? '' : (trustName ? trustName.trim() : '');
+    const assignedEmail = isSuper ? '' : (trustEmail ? trustEmail.trim().toLowerCase() : '');
 
     const now = new Date();
     const newHead = {
       _id: `dh_${Date.now()}`,
       name: cleanName,
+      rawName: cleanName,
       description: description.trim(),
       status: 'Active',
-      isGlobal: Boolean(isGlobal),
-      createdBy: String(createdBy || 'Admin'),
+      isGlobal: Boolean(isSuper),
+      createdBy: isSuper ? 'Super Admin' : (assignedTrust || assignedEmail || 'Admin'),
       trustName: assignedTrust,
-      trustEmail: String(trustEmail || ''),
+      trustEmail: assignedEmail,
       hiddenForTrusts: [],
       createdAt: now.toISOString(),
       formattedDate: formatTime(now)
@@ -270,10 +314,10 @@ router.post('/', async (req, res) => {
           name: cleanName,
           description: description.trim(),
           status: 'Active',
-          isGlobal: Boolean(isGlobal),
-          createdBy: String(createdBy || 'Admin'),
+          isGlobal: Boolean(isSuper),
+          createdBy: isSuper ? 'Super Admin' : (assignedTrust || assignedEmail || 'Admin'),
           trustName: assignedTrust,
-          trustEmail: String(trustEmail || ''),
+          trustEmail: assignedEmail,
           hiddenForTrusts: []
         });
         newHead._id = created._id.toString();
@@ -311,16 +355,16 @@ router.put('/:id', async (req, res) => {
     if (status !== undefined) updateFields.status = status;
     if (isGlobal !== undefined) updateFields.isGlobal = Boolean(isGlobal);
     if (trustName !== undefined) updateFields.trustName = trustName;
-    if (trustEmail !== undefined) updateFields.trustEmail = trustEmail;
+    if (trustEmail !== undefined) updateFields.trustEmail = trustEmail.toLowerCase().trim();
 
-    if (getIsConnected()) {
+    if (getIsConnected() && mongoose.Types.ObjectId.isValid(id)) {
       try {
         await DonationHead.findByIdAndUpdate(id, updateFields, { new: true });
       } catch (e) {}
     }
 
     const currentHeads = getHeads();
-    const index = currentHeads.findIndex(h => h._id === id);
+    const index = currentHeads.findIndex(h => String(h._id) === String(id));
     if (index === -1) {
       return res.status(404).json({ success: false, message: 'Head not found' });
     }
@@ -342,8 +386,10 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE donation head
-// If SuperAdmin deletes: permanently delete globally from database for all panels.
-// If Trust Admin deletes: hide only for this specific trust in hiddenForTrusts.
+// If SuperAdmin: permanently delete globally from database and disk.
+// If Trust Admin:
+//   - If custom head of this trust: permanently delete this custom head.
+//   - If global head: hide only for this specific trust in hiddenForTrusts.
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -356,30 +402,35 @@ router.delete('/:id', async (req, res) => {
     let targetHead = currentHeads.find(h => String(h._id) === String(id));
     if (!targetHead && getIsConnected() && mongoose.Types.ObjectId.isValid(id)) {
       try {
-        targetHead = await DonationHead.findById(id);
+        targetHead = await DonationHead.findById(id).lean();
       } catch (e) {}
     }
 
     const baseName = targetHead
       ? (targetHead.rawName || targetHead.name || '').replace(/\s*\([^)]*\)\s*$/, '').trim()
       : '';
+    const isHeadGlobal = Boolean(targetHead?.isGlobal || targetHead?.createdBy === 'Super Admin' || targetHead?.createdBy === 'System');
 
-    // Build database query conditions
-    const mongoConditions = [];
-    if (mongoose.Types.ObjectId.isValid(id)) {
-      mongoConditions.push({ _id: id });
-    }
-    if (baseName) {
-      mongoConditions.push({ name: baseName });
-      const escapedBase = baseName.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
-      mongoConditions.push({ name: new RegExp('^' + escapedBase + '(\\s*\\([^)]*\\))?$', 'i') });
-    }
-
-    if (isSuper) {
-      // 1. SUPER ADMIN DELETE: Global permanent delete across all panels
-      if (getIsConnected() && mongoConditions.length > 0) {
+    if (isSuper || (!isHeadGlobal && targetHead)) {
+      // PERMANENT DELETE (either SuperAdmin deleting any head, or Trust Admin deleting their own custom head)
+      if (getIsConnected()) {
         try {
-          await DonationHead.deleteMany({ $or: mongoConditions });
+          const deleteFilter = [];
+          if (mongoose.Types.ObjectId.isValid(id)) {
+            deleteFilter.push({ _id: id });
+          }
+          if (baseName && !isSuper) {
+            deleteFilter.push({
+              name: new RegExp(`^${escapeRegex(baseName)}$`, 'i'),
+              isGlobal: false,
+              ...(trustEmail ? { trustEmail: new RegExp(`^${escapeRegex(trustEmail.trim())}$`, 'i') } : {})
+            });
+          } else if (baseName && isSuper) {
+            deleteFilter.push({ name: new RegExp(`^${escapeRegex(baseName)}$`, 'i') });
+          }
+          if (deleteFilter.length > 0) {
+            await DonationHead.deleteMany({ $or: deleteFilter });
+          }
         } catch (e) {
           console.error('Mongo delete error:', e.message);
         }
@@ -389,35 +440,50 @@ router.delete('/:id', async (req, res) => {
         const hId = String(h._id || '');
         const hBase = (h.rawName || h.name || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
         if (hId === String(id)) return false;
-        if (baseName && hBase === baseName.toLowerCase()) return false;
+        if (!isSuper && !h.isGlobal && baseName && hBase === baseName.toLowerCase()) {
+          const hEmail = (h.trustEmail || '').trim().toLowerCase();
+          if (trustEmail && hEmail === trustEmail.trim().toLowerCase()) return false;
+        }
+        if (isSuper && baseName && hBase === baseName.toLowerCase()) return false;
         return true;
       });
       saveHeads(filtered);
 
       return res.json({
         success: true,
-        message: 'Donation head permanently deleted globally across all panels',
-        deletedGlobally: true
+        message: isSuper
+          ? 'Donation head permanently deleted globally across all panels'
+          : 'Custom donation head deleted from your trust panel',
+        deletedGlobally: isSuper
       });
     } else {
-      // 2. TRUST ADMIN DELETE: Hide only for this specific trust
+      // TRUST ADMIN HIDING A GLOBAL HEAD FOR THEIR TRUST ONLY
       const trustsToAdd = [];
       if (trustName && trustName.trim()) trustsToAdd.push(trustName.trim());
-      if (trustEmail && trustEmail.trim()) trustsToAdd.push(trustEmail.trim());
+      if (trustEmail && trustEmail.trim()) trustsToAdd.push(trustEmail.trim().toLowerCase());
       if (trustsToAdd.length === 0) trustsToAdd.push('MahaRaja-Trust-002');
 
-      if (getIsConnected() && mongoConditions.length > 0) {
+      if (getIsConnected()) {
         try {
-          await DonationHead.updateMany(
-            { $or: mongoConditions },
-            { $addToSet: { hiddenForTrusts: { $each: trustsToAdd } } }
-          );
+          const mongoConditions = [];
+          if (mongoose.Types.ObjectId.isValid(id)) {
+            mongoConditions.push({ _id: id });
+          }
+          if (baseName) {
+            mongoConditions.push({ name: new RegExp(`^${escapeRegex(baseName)}$`, 'i') });
+          }
+          if (mongoConditions.length > 0) {
+            await DonationHead.updateMany(
+              { $or: mongoConditions },
+              { $addToSet: { hiddenForTrusts: { $each: trustsToAdd } } }
+            );
+          }
         } catch (e) {
           console.error('Mongo hide error:', e.message);
         }
       }
 
-      // Also update donationHeads.json
+      // Update local storage
       for (const item of currentHeads) {
         const hId = String(item._id || '');
         const hBase = (item.rawName || item.name || '').replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
@@ -434,7 +500,7 @@ router.delete('/:id', async (req, res) => {
 
       return res.json({
         success: true,
-        message: `Donation head removed from your panel only`,
+        message: 'Donation head removed from your panel only',
         hiddenForTrusts: trustsToAdd
       });
     }
@@ -447,3 +513,4 @@ router.delete('/:id', async (req, res) => {
 module.exports = router;
 module.exports.getHeads = getHeads;
 module.exports.formatHead = formatHead;
+

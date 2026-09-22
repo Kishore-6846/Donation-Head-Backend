@@ -1,5 +1,30 @@
 [
   {
+    "_id": "6ab2247f6b78cb4f3064c54d",
+    "roleName": "tester",
+    "description": "",
+    "permissions": {
+      "donationHead": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false,
+        "download": false
+      },
+      "donationReceipt": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false,
+        "download": false
+      }
+    },
+    "created": "22-09-2026 12:17:27 PM",
+    "trustEmail": "admin@maharaja-trust.com",
+    "trustName": "MahaRaja-Trust",
+    "trustId": "6aab9785e9ac1b5950b5bccd"
+  },
+  {
     "_id": "role_1790051537585",
     "roleName": "Content Creater",
     "description": "",

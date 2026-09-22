@@ -25,7 +25,7 @@ router.post('/login', async (req, res) => {
     if (getIsConnected()) {
       try {
         user = await Promise.race([
-          User.findOne({ email: loginEmail }).select('-logo -signature').lean(),
+          User.findOne({ email: loginEmail }).lean(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Auth DB Query Timeout')), 3500))
         ]);
       } catch (dbErr) {
