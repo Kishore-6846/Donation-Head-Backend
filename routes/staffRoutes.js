@@ -14,7 +14,7 @@ const saveStaff = (list) => saveCollection('staff', list);
 const escapeRegex = (string) => (string || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Helper to verify if a role exists case-insensitively in Member Roles
-const checkRoleExists = async (roleName, trustEmail) => {
+const checkRoleExists = async (roleName, trustEmail, trustId) => {
   if (!roleName) return false;
   const cleanRole = roleName.trim();
   if (!cleanRole) return false;
@@ -26,8 +26,11 @@ const checkRoleExists = async (roleName, trustEmail) => {
       const filter = {
         roleName: { $regex: new RegExp(`^${escapeRegex(cleanRole)}$`, 'i') }
       };
-      if (emailLower) {
-        filter.$or = [{ trustEmail: emailLower }, { trustEmail: '' }, { trustEmail: { $exists: false } }, { trustEmail: null }];
+      if (emailLower || trustId) {
+        filter.$or = [
+          ...(emailLower ? [{ trustEmail: emailLower }] : []),
+          ...(trustId ? [{ trustId: trustId.toString() }] : [])
+        ];
       }
       const found = await Role.findOne(filter).lean();
       if (found) return true;
@@ -40,7 +43,8 @@ const checkRoleExists = async (roleName, trustEmail) => {
   const diskRoles = getCollection('roles', initialRoles || []);
   const foundLocal = diskRoles.find(r =>
     r.roleName && r.roleName.trim().toLowerCase() === cleanRole.toLowerCase() &&
-    (!emailLower || !r.trustEmail || r.trustEmail.toLowerCase() === emailLower)
+    (!emailLower || (r.trustEmail && r.trustEmail.toLowerCase() === emailLower)) &&
+    (!trustId || (r.trustId && r.trustId.toString() === trustId.toString()))
   );
   return Boolean(foundLocal);
 };
@@ -49,23 +53,61 @@ const checkRoleExists = async (roleName, trustEmail) => {
 const syncTrustStaffCount = async (trustEmail, trustId, trustName) => {
   try {
     if (!trustEmail && !trustId && !trustName) return;
+    const emailLower = (trustEmail || '').trim().toLowerCase();
+    const strId = (trustId || '').toString();
+    const nameClean = (trustName || '').trim();
+
+    let count = 0;
+
     if (getIsConnected()) {
-      const query = {
-        $or: [
-          ...(trustEmail ? [{ trustEmail: trustEmail.toLowerCase() }] : []),
-          ...(trustId ? [{ trustId: trustId.toString() }] : []),
-          ...(trustName ? [{ trustName: trustName }] : [])
-        ]
-      };
-      const count = await Staff.countDocuments(query);
-      const userQuery = {
-        $or: [
-          ...(trustEmail ? [{ email: trustEmail.toLowerCase() }] : []),
-          ...(trustId && trustId.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: trustId }] : []),
-          ...(trustName ? [{ trustName: trustName }, { name: trustName }] : [])
-        ]
-      };
-      await User.updateMany(userQuery, { $set: { staffCount: count } });
+      try {
+        const query = {
+          $or: [
+            ...(emailLower ? [{ trustEmail: emailLower }] : []),
+            ...(strId ? [{ trustId: strId }] : []),
+            ...(nameClean ? [{ trustName: nameClean }] : [])
+          ]
+        };
+        count = await Staff.countDocuments(query);
+        const userQuery = {
+          $or: [
+            ...(emailLower ? [{ email: emailLower }] : []),
+            ...(strId && strId.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: strId }] : []),
+            ...(nameClean ? [{ trustName: nameClean }, { name: nameClean }] : [])
+          ]
+        };
+        await User.updateMany(userQuery, { $set: { staffCount: count } });
+      } catch (e) {
+        console.warn('DB sync error:', e.message);
+      }
+    }
+
+    // Also sync disk storage users.json
+    try {
+      const diskUsers = getCollection('users', []);
+      const allStaff = getStaff();
+      const diskCount = allStaff.filter(s =>
+        (emailLower && s.trustEmail && s.trustEmail.toLowerCase() === emailLower) ||
+        (strId && s.trustId && s.trustId.toString() === strId) ||
+        (nameClean && s.trustName && s.trustName.toLowerCase() === nameClean.toLowerCase())
+      ).length;
+
+      let changed = false;
+      const updatedUsers = diskUsers.map(u => {
+        const match = (emailLower && u.email && u.email.toLowerCase() === emailLower) ||
+                      (strId && (String(u._id) === strId || String(u.id) === strId)) ||
+                      (nameClean && (u.trustName?.toLowerCase() === nameClean.toLowerCase() || u.name?.toLowerCase() === nameClean.toLowerCase()));
+        if (match) {
+          changed = true;
+          return { ...u, staffCount: getIsConnected() ? count : diskCount };
+        }
+        return u;
+      });
+      if (changed) {
+        saveCollection('users', updatedUsers);
+      }
+    } catch (e) {
+      console.warn('Disk sync error:', e.message);
     }
   } catch (e) {
     console.warn('Error syncing trust staff count:', e.message);
@@ -538,7 +580,17 @@ router.delete('/:id', async (req, res) => {
 
     if (getIsConnected()) {
       try {
-        deleted = await Staff.findByIdAndDelete(id);
+        if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
+          deleted = await Staff.findByIdAndDelete(id);
+        } else {
+          const cleanEmail = decodeURIComponent(id).trim();
+          deleted = await Staff.findOneAndDelete({
+            $or: [
+              { _id: id },
+              { email: new RegExp(`^${escapeRegex(cleanEmail)}$`, 'i') }
+            ]
+          });
+        }
         if (deleted) {
           await syncTrustStaffCount(deleted.trustEmail, deleted.trustId, deleted.trustName);
         }
@@ -548,8 +600,19 @@ router.delete('/:id', async (req, res) => {
     }
 
     const all = getStaff();
-    const diskDeleted = all.find(s => s._id === id || s.email === id);
-    const filtered = all.filter(s => s._id !== id && s.email !== id);
+    const cleanId = String(id || '').trim().toLowerCase();
+    const diskDeleted = all.find(s =>
+      (s._id && String(s._id).toLowerCase() === cleanId) ||
+      (s.id && String(s.id).toLowerCase() === cleanId) ||
+      (s.email && s.email.toLowerCase() === cleanId)
+    );
+    const filtered = all.filter(s =>
+      !(
+        (s._id && String(s._id).toLowerCase() === cleanId) ||
+        (s.id && String(s.id).toLowerCase() === cleanId) ||
+        (s.email && s.email.toLowerCase() === cleanId)
+      )
+    );
     saveStaff(filtered);
 
     const emailToSync = deleted?.trustEmail || diskDeleted?.trustEmail;

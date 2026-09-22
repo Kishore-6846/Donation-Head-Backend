@@ -113,8 +113,8 @@ router.get('/', async (req, res) => {
         allDbStaff = dbStaff;
         allDbReceipts = dbReceipts;
 
-        const allStaff = combineUniqueItems(allDbStaff, getCollection('staff', []), getStaffKey);
-        const allReceipts = combineUniqueItems(allDbReceipts, getCollection('receipts', []), getReceiptKey);
+        const allStaff = getIsConnected() ? allDbStaff : getCollection('staff', []);
+        const allReceipts = getIsConnected() ? allDbReceipts : getCollection('receipts', []);
 
         usersList = dbUsers.map(u => {
           const staffCount = matchTrustStaff(u, allStaff);
@@ -313,7 +313,7 @@ router.get('/:id/summary', async (req, res) => {
       return Boolean(matchEmail || matchId || matchTrust);
     });
 
-    const staffMembers = combineUniqueItems(dbStaffMembers, fileStaff, getStaffKey);
+    const staffMembers = getIsConnected() ? dbStaffMembers : fileStaff;
 
     // Calculate aggregated statistics
     const totalAmount = receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
@@ -330,12 +330,24 @@ router.get('/:id/summary', async (req, res) => {
           phone: r.phone || '',
           email: r.email || '',
           panNo: r.panNo || '',
+          donationHeads: [],
+          paymentModes: [],
+          donationHead: r.donationHead || 'General',
+          paymentMode: r.paymentMode || 'Online / UPI',
           totalDonated: 0,
           donationsCount: 0,
           lastDonationDate: r.receiptDate || ''
         });
       }
       const d = donorMap.get(key);
+      if (r.donationHead && !d.donationHeads.includes(r.donationHead)) {
+        d.donationHeads.push(r.donationHead);
+      }
+      if (r.paymentMode && !d.paymentModes.includes(r.paymentMode)) {
+        d.paymentModes.push(r.paymentMode);
+      }
+      d.donationHead = d.donationHeads.join(', ') || r.donationHead || 'General';
+      d.paymentMode = d.paymentModes.join(', ') || r.paymentMode || 'Online / UPI';
       d.totalDonated += Number(r.amount) || 0;
       d.donationsCount += 1;
       d.lastDonationDate = r.receiptDate || d.lastDonationDate;

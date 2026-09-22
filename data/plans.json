@@ -21,10 +21,10 @@
     "_id": "plan_standard",
     "name": "Standard",
     "code": "standard",
-    "price": 2500,
+    "price": 2400,
     "billingCycle": "Annual",
     "validityDays": 365,
-    "receiptLimit": "Unlimited Receipts",
+    "receiptLimit": "Unlimited",
     "staffUserLimit": "2 Staff Users",
     "features": [
       "1 Admin",

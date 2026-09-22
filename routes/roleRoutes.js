@@ -85,17 +85,16 @@ router.get('/', async (req, res) => {
     const { trustEmail, trustId } = req.query;
     let roles = [];
 
+    const emailLower = (trustEmail || '').trim().toLowerCase();
+
     if (getIsConnected()) {
       try {
         let filter = {};
-        if (trustEmail) {
-          const emailLower = trustEmail.trim().toLowerCase();
+        if (emailLower || trustId) {
           filter = {
             $or: [
-              { trustEmail: emailLower },
-              { trustEmail: { $exists: false } },
-              { trustEmail: '' },
-              { trustEmail: null }
+              ...(emailLower ? [{ trustEmail: emailLower }] : []),
+              ...(trustId ? [{ trustId: trustId.toString() }] : [])
             ]
           };
         }
@@ -107,6 +106,13 @@ router.get('/', async (req, res) => {
 
     // Always merge with fallback storage so no roles are lost
     const localRoles = getRoles();
+    const filteredLocal = (emailLower || trustId)
+      ? (localRoles || []).filter(r =>
+          (emailLower && r.trustEmail && r.trustEmail.toLowerCase() === emailLower) ||
+          (trustId && r.trustId && r.trustId.toString() === trustId.toString())
+        )
+      : (localRoles || []);
+
     const roleMap = new Map();
     (roles || []).forEach(r => {
       if (r && r.roleName) {
@@ -117,7 +123,7 @@ router.get('/', async (req, res) => {
         roleMap.set(r.roleName.trim().toLowerCase(), item);
       }
     });
-    (localRoles || []).forEach(r => {
+    (filteredLocal || []).forEach(r => {
       if (r && r.roleName && !roleMap.has(r.roleName.trim().toLowerCase())) {
         const item = {
           ...r,
@@ -130,7 +136,7 @@ router.get('/', async (req, res) => {
     return res.json({ success: true, data: Array.from(roleMap.values()) });
   } catch (error) {
     console.error('Error in GET /api/roles:', error);
-    return res.json({ success: true, data: getRoles() });
+    return res.json({ success: true, data: [] });
   }
 });
 
@@ -156,15 +162,18 @@ router.post('/', async (req, res) => {
 
     const emailLower = (trustEmail || '').trim().toLowerCase();
 
-    // Check if role with this name already exists in MongoDB (case-insensitive)
+    // Check if role with this name already exists for this trust in MongoDB (case-insensitive)
     let existingInDb = null;
     if (getIsConnected()) {
       try {
         const filter = {
           roleName: { $regex: new RegExp(`^${escapeRegex(cleanRoleName)}$`, 'i') }
         };
-        if (emailLower) {
-          filter.$or = [{ trustEmail: emailLower }, { trustEmail: '' }, { trustEmail: { $exists: false } }];
+        if (emailLower || trustId) {
+          filter.$or = [
+            ...(emailLower ? [{ trustEmail: emailLower }] : []),
+            ...(trustId ? [{ trustId: trustId.toString() }] : [])
+          ];
         }
         existingInDb = await Role.findOne(filter).lean();
       } catch (dbErr) {
@@ -172,11 +181,12 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Check if role exists in fallback storage
+    // Check if role exists in fallback storage for this trust
     const currentRoles = getRoles();
     const existingInLocal = currentRoles.find(
       r => r.roleName && r.roleName.trim().toLowerCase() === cleanRoleName.toLowerCase() &&
-           (!emailLower || !r.trustEmail || r.trustEmail.toLowerCase() === emailLower)
+           (!emailLower || (r.trustEmail && r.trustEmail.toLowerCase() === emailLower)) &&
+           (!trustId || (r.trustId && r.trustId.toString() === trustId.toString()))
     );
 
     if (existingInDb || existingInLocal) {
@@ -431,17 +441,31 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
+    const emailLower = (trustEmail || '').trim().toLowerCase();
+
     if (getIsConnected()) {
       try {
         if (id && id.match(/^[0-9a-fA-F]{24}$/)) {
           await Role.findByIdAndDelete(id);
+        } else {
+          const deleteFilter = {
+            roleName: new RegExp(`^${escapeRegex(targetRoleName)}$`, 'i')
+          };
+          if (emailLower) {
+            deleteFilter.trustEmail = emailLower;
+          }
+          await Role.deleteMany(deleteFilter);
         }
-        await Role.deleteMany({ roleName: new RegExp(`^${escapeRegex(targetRoleName)}$`, 'i') });
       } catch (e) {}
     }
 
     const current = getRoles();
-    const filtered = current.filter(r => r._id !== id && r.roleName?.trim().toLowerCase() !== targetRoleName.trim().toLowerCase());
+    const filtered = current.filter(r => {
+      const matchId = (r._id === id || r.id === id);
+      const matchName = r.roleName?.trim().toLowerCase() === targetRoleName.trim().toLowerCase();
+      const matchTrust = !emailLower || (r.trustEmail && r.trustEmail.toLowerCase() === emailLower);
+      return !(matchId || (matchName && matchTrust));
+    });
     saveRoles(filtered);
 
     return res.json({ success: true, message: 'Role removed successfully' });
