@@ -1,7 +1,7 @@
 [
   {
-    "_id": "6ab115153441cb69be04fa86",
-    "roleName": "Accountant",
+    "_id": "role_1790051537585",
+    "roleName": "Content Creater",
     "description": "",
     "permissions": {
       "donationHead": {
@@ -19,9 +19,9 @@
         "download": false
       }
     },
-    "created": "21-09-2026 16:59:25",
-    "trustEmail": "admin@maharaja-trust.com",
-    "trustName": "MahaRaja-Trust",
-    "trustId": "6aab9785e9ac1b5950b5bccd"
+    "created": "22-09-2026 10:02:17",
+    "trustEmail": "admin@gurudevatrust.com",
+    "trustName": "GuruDeva Trust",
+    "trustId": "6aab93d730f192389bb13069"
   }
 ]

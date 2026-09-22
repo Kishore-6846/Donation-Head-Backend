@@ -10,9 +10,30 @@ const getRoles = () => getCollection('roles', initialRoles);
 const saveRoles = (list) => saveCollection('roles', list);
 
 const getISTDateString = (d = new Date()) => {
+  if (!d) return '';
+
+  // If already a 24-hour string like DD-MM-YYYY HH:mm:ss, convert to 12-hour AM/PM
+  if (typeof d === 'string' && /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/.test(d.trim())) {
+    const [dPart, tPart] = d.trim().split(' ');
+    const [day, month, year] = dPart.split('-');
+    const [hh, mm, ss] = tPart.split(':');
+    let h = parseInt(hh, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    const strH = String(h).padStart(2, '0');
+    return `${day}-${month}-${year} ${strH}:${mm}:${ss} ${ampm}`;
+  }
+
+  // If already 12-hour format string, return formatted
+  if (typeof d === 'string' && /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}(:\d{2})?\s*(AM|PM|am|pm)$/i.test(d.trim())) {
+    return d.trim().toUpperCase();
+  }
+
   try {
     const date = new Date(d);
-    const options = {
+    if (isNaN(date.getTime())) return String(d);
+
+    const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Asia/Kolkata',
       day: '2-digit',
       month: '2-digit',
@@ -20,10 +41,10 @@ const getISTDateString = (d = new Date()) => {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: false
-    };
-    const parts = new Intl.DateTimeFormat('en-GB', options).formatToParts(date);
-    let day = '', month = '', year = '', hour = '', minute = '', second = '';
+      hour12: true
+    }).formatToParts(date);
+
+    let day = '', month = '', year = '', hour = '', minute = '', second = '', dayPeriod = '';
     for (const p of parts) {
       if (p.type === 'day') day = p.value;
       else if (p.type === 'month') month = p.value;
@@ -31,17 +52,27 @@ const getISTDateString = (d = new Date()) => {
       else if (p.type === 'hour') hour = p.value;
       else if (p.type === 'minute') minute = p.value;
       else if (p.type === 'second') second = p.value;
+      else if (p.type === 'dayPeriod') dayPeriod = p.value;
     }
-    return `${day}-${month}-${year} ${hour}:${minute}:${second}`;
+
+    const strHour = String(hour).padStart(2, '0');
+    const strMin = String(minute).padStart(2, '0');
+    const strSec = String(second).padStart(2, '0');
+    const ampm = (dayPeriod || (date.getHours() >= 12 ? 'PM' : 'AM')).toUpperCase();
+
+    return `${day}-${month}-${year} ${strHour}:${strMin}:${strSec} ${ampm}`;
   } catch (e) {
     const date = new Date(d);
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = date.getFullYear();
-    const hours = String(date.getHours()).padStart(2, '0');
+    let hours = date.getHours();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    const strHours = String(hours).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
     const seconds = String(date.getSeconds()).padStart(2, '0');
-    return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+    return `${day}-${month}-${year} ${strHours}:${minutes}:${seconds} ${ampm}`;
   }
 };
 
@@ -75,11 +106,21 @@ router.get('/', async (req, res) => {
     const localRoles = getRoles();
     const roleMap = new Map();
     (roles || []).forEach(r => {
-      if (r && r.roleName) roleMap.set(r.roleName.toLowerCase(), r);
+      if (r && r.roleName) {
+        const item = {
+          ...r,
+          created: r.createdAt ? getISTDateString(r.createdAt) : (r.created ? getISTDateString(r.created) : getISTDateString(new Date()))
+        };
+        roleMap.set(r.roleName.toLowerCase(), item);
+      }
     });
     (localRoles || []).forEach(r => {
       if (r && r.roleName && !roleMap.has(r.roleName.toLowerCase())) {
-        roleMap.set(r.roleName.toLowerCase(), r);
+        const item = {
+          ...r,
+          created: r.createdAt ? getISTDateString(r.createdAt) : (r.created ? getISTDateString(r.created) : getISTDateString(new Date()))
+        };
+        roleMap.set(r.roleName.toLowerCase(), item);
       }
     });
 

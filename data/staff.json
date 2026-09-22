@@ -1,17 +1,5 @@
 [
   {
-    "_id": "6ab115283441cb69be04fa98",
-    "name": "Harish",
-    "email": "harish623676@gmail.com",
-    "phone": "8967846876",
-    "role": "Accountant",
-    "status": "Active",
-    "trustEmail": "admin@maharaja-trust.com",
-    "trustId": "6aab9785e9ac1b5950b5bccd",
-    "trustName": "MahaRaja-Trust",
-    "createdAt": "2026-09-21T11:29:44.980Z"
-  },
-  {
     "_id": "staff_1789983983469",
     "name": "kishore",
     "email": "kumaravelu6746@gmail.com",
