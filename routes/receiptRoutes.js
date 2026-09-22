@@ -269,9 +269,13 @@ const enrichReceiptWithTrustData = async (receipt, req = {}) => {
         : (receipt.receiptWatermarkText || receipt.watermarkText || ''),
       receiptWatermarkText: (adminUser?.receiptWatermarkText !== undefined && adminUser?.receiptWatermarkText !== null)
         ? adminUser.receiptWatermarkText
-        : (receipt.receiptWatermarkText || receipt.watermarkText || ''),
-      signatoryName: adminUser?.contactPerson || adminUser?.signatoryName || adminUser?.name || receipt.signatoryName || 'Authorized Signatory',
-      signatoryPan: adminUser?.signatoryPan || adminUser?.panNo || receipt.signatoryPan || '',
+      signatoryName: adminUser?.signatoryName ||
+        [adminUser?.firstName, adminUser?.middleName, adminUser?.surname].filter(Boolean).join(' ').trim() ||
+        receipt.signatoryName ||
+        adminUser?.contactPerson ||
+        adminUser?.name ||
+        'Authorized Signatory',
+      signatoryPan: adminUser?.signatoryPan || receipt.signatoryPan || '',
       certificates: receipt.certificates || certificates
     };
   } catch (err) {

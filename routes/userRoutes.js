@@ -6,6 +6,7 @@ const User = require('../models/User');
 const DonationReceipt = require('../models/DonationReceipt');
 const Staff = require('../models/Staff');
 const Plan = require('../models/Plan');
+const Certificate = require('../models/Certificate');
 const { getCollection, saveCollection } = require('../services/storageService');
 
 const initialUsers = [];
@@ -675,6 +676,80 @@ router.put('/:id', async (req, res) => {
       currentUsers.push(newUser);
       if (!updated) updated = newUser;
       saveUsers(currentUsers);
+    }
+
+    // Cascade updated trustName to receipts, staff, and certificates
+    const newTrustName = (updates.trustName || updates.name || '').trim();
+    const targetEmail = (baseExisting?.email || updates.email || id || '').trim().toLowerCase();
+    const targetIdStr = (baseExisting?._id || id || '').toString();
+
+    if (newTrustName && newTrustName.toLowerCase() !== 'trust organization') {
+      if (getIsConnected()) {
+        try {
+          const matchOr = [];
+          if (targetEmail) {
+            matchOr.push({ trustEmail: new RegExp(`^${targetEmail}$`, 'i') });
+            matchOr.push({ createdBy: new RegExp(`^${targetEmail}$`, 'i') });
+          }
+          if (targetIdStr && targetIdStr.match(/^[0-9a-fA-F]{24}$/)) {
+            matchOr.push({ trustId: targetIdStr });
+          }
+          if (matchOr.length > 0) {
+            await Promise.allSettled([
+              DonationReceipt.updateMany({ $or: matchOr }, { $set: { trustName: newTrustName } }),
+              Staff.updateMany({ $or: matchOr }, { $set: { trustName: newTrustName } }),
+              Certificate.updateMany({ $or: matchOr }, { $set: { trustName: newTrustName } })
+            ]);
+          }
+        } catch (syncErr) {
+          console.warn('Error syncing trustName to DB collections:', syncErr.message);
+        }
+      }
+
+      // Sync File storage collections
+      try {
+        const fileReceipts = getCollection('receipts', []);
+        let receiptsChanged = false;
+        fileReceipts.forEach(r => {
+          if (!r) return;
+          const rEmail = (r.trustEmail || '').trim().toLowerCase();
+          const rCreated = (r.createdBy || '').trim().toLowerCase();
+          const rId = (r.trustId || '').toString();
+          if ((targetEmail && (rEmail === targetEmail || rCreated === targetEmail)) || (targetIdStr && rId === targetIdStr)) {
+            r.trustName = newTrustName;
+            receiptsChanged = true;
+          }
+        });
+        if (receiptsChanged) saveCollection('receipts', fileReceipts);
+
+        const fileStaff = getCollection('staff', []);
+        let staffChanged = false;
+        fileStaff.forEach(s => {
+          if (!s) return;
+          const sEmail = (s.trustEmail || '').trim().toLowerCase();
+          const sId = (s.trustId || '').toString();
+          if ((targetEmail && sEmail === targetEmail) || (targetIdStr && sId === targetIdStr)) {
+            s.trustName = newTrustName;
+            staffChanged = true;
+          }
+        });
+        if (staffChanged) saveCollection('staff', fileStaff);
+
+        const fileCerts = getCollection('certificates', []);
+        let certsChanged = false;
+        fileCerts.forEach(c => {
+          if (!c) return;
+          const cEmail = (c.trustEmail || c.createdBy || '').trim().toLowerCase();
+          const cId = (c.trustId || '').toString();
+          if ((targetEmail && cEmail === targetEmail) || (targetIdStr && cId === targetIdStr)) {
+            c.trustName = newTrustName;
+            certsChanged = true;
+          }
+        });
+        if (certsChanged) saveCollection('certificates', fileCerts);
+      } catch (fileSyncErr) {
+        console.warn('Error syncing trustName to file storage:', fileSyncErr.message);
+      }
     }
 
     return res.json({

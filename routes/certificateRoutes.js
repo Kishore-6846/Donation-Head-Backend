@@ -104,6 +104,158 @@ router.post('/', async (req, res) => {
   }
 });
 
+// GET /api/certificates/:id
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    let cert = null;
+    if (getIsConnected()) {
+      try {
+        if (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/)) {
+          cert = await Certificate.findById(id).lean();
+        } else {
+          cert = await Certificate.findOne({
+            $or: [
+              { _id: id },
+              { id: Number(id) || 0 },
+              { regNo: id }
+            ]
+          }).lean();
+        }
+      } catch (e) {
+        console.warn('DB read error for certificate by ID:', e.message);
+      }
+    }
+
+    if (!cert) {
+      const fileList = getCertificatesList();
+      cert = fileList.find(c =>
+        String(c._id) === String(id) ||
+        String(c.id) === String(id) ||
+        String(c.regNo).toLowerCase() === String(id).toLowerCase()
+      );
+    }
+
+    if (!cert) {
+      return res.status(404).json({ success: false, message: 'Certificate not found' });
+    }
+
+    return res.json({ success: true, data: cert });
+  } catch (error) {
+    console.error('Error fetching certificate:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PUT /api/certificates/:id and PUT /api/certificates
+const handleUpdateCert = async (req, res) => {
+  try {
+    const id = req.params.id || req.query.id || req.query._id || req.body._id || req.body.id;
+    const regNo = req.query.regNo || req.body?.regNo;
+
+    const {
+      validFrom = '',
+      validUpto = '',
+      page1,
+      page2,
+      trustEmail = '',
+      trustName = '',
+      createdBy = ''
+    } = req.body;
+
+    let updatedCert = null;
+
+    if (getIsConnected()) {
+      try {
+        const orConditions = [];
+        if (id) {
+          if (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/)) {
+            orConditions.push({ _id: id });
+          } else {
+            orConditions.push({ _id: id });
+            const numId = Number(id);
+            if (!isNaN(numId) && numId > 0) {
+              orConditions.push({ id: numId });
+            }
+          }
+        }
+        if (regNo) {
+          orConditions.push({ regNo: regNo });
+        }
+
+        const updateFields = {};
+        if (req.body.regNo) updateFields.regNo = req.body.regNo.trim();
+        if (validFrom !== undefined) updateFields.validFrom = validFrom.trim();
+        if (validUpto !== undefined) updateFields.validUpto = validUpto.trim();
+        if (page1 !== undefined) updateFields.page1 = page1;
+        if (page2 !== undefined) updateFields.page2 = page2;
+        if (trustEmail) updateFields.trustEmail = trustEmail.trim().toLowerCase();
+        if (trustName) updateFields.trustName = trustName.trim();
+        if (createdBy) updateFields.createdBy = createdBy.trim();
+
+        if (orConditions.length > 0) {
+          updatedCert = await Certificate.findOneAndUpdate(
+            { $or: orConditions },
+            { $set: updateFields },
+            { new: true }
+          ).lean();
+        }
+      } catch (e) {
+        console.warn('DB update error for certificate:', e.message);
+      }
+    }
+
+    let fileList = getCertificatesList();
+    let foundIndex = fileList.findIndex(c => {
+      const matchId = id && (String(c._id) === String(id) || String(c.id) === String(id));
+      const matchReg = regNo && String(c.regNo).toLowerCase() === String(regNo).toLowerCase();
+      return matchId || matchReg;
+    });
+
+    if (foundIndex !== -1) {
+      fileList[foundIndex] = {
+        ...fileList[foundIndex],
+        regNo: req.body.regNo ? req.body.regNo.trim() : fileList[foundIndex].regNo,
+        validFrom: validFrom !== undefined ? validFrom.trim() : fileList[foundIndex].validFrom,
+        validUpto: validUpto !== undefined ? validUpto.trim() : fileList[foundIndex].validUpto,
+        page1: page1 !== undefined ? page1 : fileList[foundIndex].page1,
+        page2: page2 !== undefined ? page2 : fileList[foundIndex].page2,
+        trustEmail: trustEmail ? trustEmail.trim().toLowerCase() : fileList[foundIndex].trustEmail,
+        trustName: trustName ? trustName.trim() : fileList[foundIndex].trustName,
+        createdBy: createdBy ? createdBy.trim() : fileList[foundIndex].createdBy
+      };
+      if (!updatedCert) {
+        updatedCert = fileList[foundIndex];
+      }
+      saveCertificatesList(fileList);
+    } else if (!updatedCert) {
+      const newEntry = {
+        _id: id || `cert_${Date.now()}`,
+        id: Date.now(),
+        regNo: req.body.regNo ? req.body.regNo.trim() : '',
+        validFrom: validFrom.trim(),
+        validUpto: validUpto.trim(),
+        page1: page1 || '',
+        page2: page2 || '',
+        trustEmail: (trustEmail || '').trim().toLowerCase(),
+        trustName: (trustName || '').trim(),
+        createdBy: (createdBy || '').trim()
+      };
+      fileList.unshift(newEntry);
+      saveCertificatesList(fileList);
+      updatedCert = newEntry;
+    }
+
+    return res.json({ success: true, message: 'Certificate updated successfully', data: updatedCert });
+  } catch (error) {
+    console.error('Error updating certificate:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+router.put('/:id', handleUpdateCert);
+router.put('/', handleUpdateCert);
+
 // DELETE /api/certificates/:id and DELETE /api/certificates
 const handleDeleteCert = async (req, res) => {
   try {
