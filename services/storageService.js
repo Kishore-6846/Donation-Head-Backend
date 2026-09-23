@@ -3,20 +3,12 @@ const path = require('path');
 
 const dataDir = path.join(__dirname, '..', 'data');
 
-// In-Memory fast RAM cache for lightning-fast retrievals
+// In-Memory fast RAM cache
 const memoryCache = new Map();
-
-// Ensure data directory exists
-if (!fs.existsSync(dataDir)) {
-  try {
-    fs.mkdirSync(dataDir, { recursive: true });
-  } catch (err) {
-    console.error('Error creating data directory:', err);
-  }
-}
 
 /**
  * Get data by collection key with high-performance in-memory caching.
+ * Does not write any files to folder.
  */
 function getCollection(key, initialData = []) {
   if (memoryCache.has(key)) {
@@ -33,34 +25,21 @@ function getCollection(key, initialData = []) {
         return parsed;
       }
     }
-  } catch (err) {
-    console.error(`Error reading ${key}.json:`, err.message);
-  }
+  } catch (err) {}
 
-  // File doesn't exist or empty -> initialize
   const data = Array.isArray(initialData) ? [...initialData] : [];
   memoryCache.set(key, data);
-
-  // Asynchronous background write to avoid blocking event loop
-  fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8', () => {});
   return data;
 }
 
 /**
- * Save data by collection key with instant in-memory update and non-blocking disk sync.
+ * In-memory state updater (Never writes to disk folder).
+ * All database records are stored directly and solely in MongoDB.
  */
 function saveCollection(key, data) {
   const safeData = Array.isArray(data) ? [...data] : data;
   memoryCache.set(key, safeData);
-
-  const filePath = path.join(dataDir, `${key}.json`);
-  // Async write to keep request response times sub-millisecond
-  fs.writeFile(filePath, JSON.stringify(safeData, null, 2), 'utf-8', (err) => {
-    if (err) {
-      console.error(`Error writing ${key}.json:`, err.message);
-    }
-  });
-
+  // Zero disk writes — all persistence is handled purely by MongoDB
   return true;
 }
 

@@ -142,18 +142,27 @@ const defaultReportTypes = [
   }
 ];
 
-function getReportTypes() {
+const ReportType = require('../models/ReportType');
+const { getIsConnected } = require('../config/db');
+
+async function getReportTypes() {
+  if (getIsConnected()) {
+    try {
+      const dbTypes = await ReportType.find({}).lean();
+      if (dbTypes && dbTypes.length > 0) return dbTypes;
+      const created = await ReportType.insertMany(defaultReportTypes);
+      return created;
+    } catch (e) {
+      console.warn('DB reportTypes fetch error:', e.message);
+    }
+  }
   return storageService.getCollection('reportTypes', defaultReportTypes);
 }
 
-function saveReportTypes(data) {
-  return storageService.saveCollection('reportTypes', data);
-}
-
 // GET all report types
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    let types = getReportTypes();
+    let types = await getReportTypes();
     const { status, category, search } = req.query;
 
     if (status) {
@@ -179,10 +188,17 @@ router.get('/', (req, res) => {
 });
 
 // GET report type by ID
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const types = getReportTypes();
-    const item = types.find(t => t._id === req.params.id || t.code === req.params.id);
+    const { id } = req.params;
+    if (getIsConnected()) {
+      try {
+        const found = await ReportType.findOne({ $or: [{ _id: id }, { code: id }] }).lean();
+        if (found) return res.json({ success: true, data: found });
+      } catch (e) {}
+    }
+    const types = await getReportTypes();
+    const item = types.find(t => t._id === id || t.code === id);
     if (!item) {
       return res.status(404).json({ success: false, message: 'Report type not found' });
     }
@@ -193,25 +209,19 @@ router.get('/:id', (req, res) => {
 });
 
 // CREATE new report type
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name, code, category, frequency, scope, columns, sectionClause, description, disclaimer, status } = req.body;
     if (!name) {
       return res.status(400).json({ success: false, message: 'Report type name is required' });
     }
 
-    const types = getReportTypes();
-    const generatedCode = code || 'REP_' + name.toUpperCase().replace(/[^A-Z0-9]/g, '_').substring(0, 15);
-
-    // Check duplicate code
-    if (types.some(t => t.code.toUpperCase() === generatedCode.toUpperCase())) {
-      return res.status(400).json({ success: false, message: 'Report type code already exists' });
-    }
+    const generatedCode = (code || 'REP_' + name.toUpperCase().replace(/[^A-Z0-9]/g, '_').substring(0, 15)).toUpperCase();
 
     const newType = {
       _id: 'rt_' + Date.now(),
       name: name.trim(),
-      code: generatedCode.toUpperCase(),
+      code: generatedCode,
       category: category || 'Custom Report',
       frequency: frequency || 'Monthly',
       scope: scope || 'Donation Receipts',
@@ -224,8 +234,13 @@ router.post('/', (req, res) => {
       updatedAt: new Date().toISOString()
     };
 
-    types.push(newType);
-    saveReportTypes(types);
+    if (getIsConnected()) {
+      try {
+        await ReportType.create(newType);
+      } catch (e) {
+        console.warn('DB error creating report type:', e.message);
+      }
+    }
 
     return res.status(201).json({ success: true, message: 'Report type created successfully', data: newType });
   } catch (err) {
@@ -234,56 +249,51 @@ router.post('/', (req, res) => {
 });
 
 // UPDATE report type
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
-    const types = getReportTypes();
-    const index = types.findIndex(t => t._id === req.params.id);
-    if (index === -1) {
-      return res.status(404).json({ success: false, message: 'Report type not found' });
-    }
-
+    const { id } = req.params;
     const { name, code, category, frequency, scope, columns, sectionClause, description, disclaimer, status } = req.body;
 
-    // Check duplicate code if changed
-    if (code && code.toUpperCase() !== types[index].code.toUpperCase()) {
-      if (types.some((t, i) => i !== index && t.code.toUpperCase() === code.toUpperCase())) {
-        return res.status(400).json({ success: false, message: 'Report type code already exists' });
-      }
-    }
-
-    types[index] = {
-      ...types[index],
-      name: name ? name.trim() : types[index].name,
-      code: code ? code.toUpperCase() : types[index].code,
-      category: category !== undefined ? category : types[index].category,
-      frequency: frequency !== undefined ? frequency : types[index].frequency,
-      scope: scope !== undefined ? scope : types[index].scope,
-      columns: columns !== undefined ? (Array.isArray(columns) ? columns : columns.split(',').map(s => s.trim())) : types[index].columns,
-      sectionClause: sectionClause !== undefined ? sectionClause : types[index].sectionClause,
-      description: description !== undefined ? description : types[index].description,
-      disclaimer: disclaimer !== undefined ? disclaimer : types[index].disclaimer,
-      status: status !== undefined ? status : types[index].status,
+    const updates = {
       updatedAt: new Date().toISOString()
     };
+    if (name !== undefined) updates.name = name.trim();
+    if (code !== undefined) updates.code = code.toUpperCase();
+    if (category !== undefined) updates.category = category;
+    if (frequency !== undefined) updates.frequency = frequency;
+    if (scope !== undefined) updates.scope = scope;
+    if (columns !== undefined) updates.columns = Array.isArray(columns) ? columns : columns.split(',').map(s => s.trim());
+    if (sectionClause !== undefined) updates.sectionClause = sectionClause;
+    if (description !== undefined) updates.description = description;
+    if (disclaimer !== undefined) updates.disclaimer = disclaimer;
+    if (status !== undefined) updates.status = status;
 
-    saveReportTypes(types);
-    return res.json({ success: true, message: 'Report type updated successfully', data: types[index] });
+    let updated = null;
+    if (getIsConnected()) {
+      try {
+        updated = await ReportType.findOneAndUpdate({ $or: [{ _id: id }, { code: id }] }, { $set: updates }, { new: true }).lean();
+      } catch (e) {}
+    }
+
+    if (updated) {
+      return res.json({ success: true, message: 'Report type updated successfully', data: updated });
+    }
+
+    return res.status(404).json({ success: false, message: 'Report type not found' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // DELETE report type
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    let types = getReportTypes();
-    const existing = types.find(t => t._id === req.params.id);
-    if (!existing) {
-      return res.status(404).json({ success: false, message: 'Report type not found' });
+    const { id } = req.params;
+    if (getIsConnected()) {
+      try {
+        await ReportType.findOneAndDelete({ $or: [{ _id: id }, { code: id }] });
+      } catch (e) {}
     }
-
-    types = types.filter(t => t._id !== req.params.id);
-    saveReportTypes(types);
 
     return res.json({ success: true, message: 'Report type deleted successfully' });
   } catch (err) {

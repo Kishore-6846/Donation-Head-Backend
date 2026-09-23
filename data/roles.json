@@ -1,5 +1,55 @@
 [
   {
+    "_id": "6ab36dde50b3ab1faaaa621d",
+    "roleName": "Designer",
+    "description": "",
+    "permissions": {
+      "donationHead": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false,
+        "download": false
+      },
+      "donationReceipt": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false,
+        "download": false
+      }
+    },
+    "created": "23-09-2026 11:42:46 AM",
+    "trustEmail": "sivaharish638349@gmail.com",
+    "trustName": "Ramu Illam",
+    "trustId": "6ab3680550b3ab1faaaa5f96"
+  },
+  {
+    "_id": "6ab36d3950b3ab1faaaa61b9",
+    "roleName": "Architect",
+    "description": "",
+    "permissions": {
+      "donationHead": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false,
+        "download": false
+      },
+      "donationReceipt": {
+        "view": true,
+        "add": false,
+        "edit": false,
+        "delete": false,
+        "download": false
+      }
+    },
+    "created": "23-09-2026 11:40:01 AM",
+    "trustEmail": "sivaharish638349@gmail.com",
+    "trustName": "Ramu Illam",
+    "trustId": "6ab3680550b3ab1faaaa5f96"
+  },
+  {
     "_id": "6ab2247f6b78cb4f3064c54d",
     "roleName": "tester",
     "description": "",

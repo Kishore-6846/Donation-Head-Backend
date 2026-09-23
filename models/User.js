@@ -115,6 +115,35 @@ const userSchema = new mongoose.Schema(
     },
     trialEndsAt: {
       type: Date
+    },
+    // Dynamic Per-Trust Admin Outgoing SMTP Configuration
+    smtpEmail: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    smtpPassword: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    smtpHost: {
+      type: String,
+      default: 'smtp.gmail.com',
+      trim: true
+    },
+    smtpPort: {
+      type: Number,
+      default: 465
+    },
+    smtpService: {
+      type: String,
+      default: 'gmail',
+      trim: true
+    },
+    smtpEnabled: {
+      type: Boolean,
+      default: true
     }
   },
   {

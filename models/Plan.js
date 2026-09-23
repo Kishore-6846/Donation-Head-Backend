@@ -24,7 +24,6 @@ const planSchema = new mongoose.Schema(
     },
     billingCycle: {
       type: String,
-      enum: ['Annual', 'Monthly', 'Quarterly'],
       default: 'Annual'
     },
     validityDays: {
@@ -53,12 +52,12 @@ const planSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['Active', 'Inactive'],
       default: 'Active'
     }
   },
   {
-    timestamps: true
+    timestamps: true,
+    strict: false
   }
 );
 

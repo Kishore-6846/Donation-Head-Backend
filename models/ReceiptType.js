@@ -40,8 +40,10 @@ const receiptTypeSchema = new mongoose.Schema(
     }
   },
   {
-    timestamps: true
+    timestamps: true,
+    strict: false
   }
 );
 
 module.exports = mongoose.models.ReceiptType || mongoose.model('ReceiptType', receiptTypeSchema);
+

@@ -607,6 +607,21 @@ router.get('/superadmin', async (req, res) => {
       } catch (e) {}
     }
 
+    // Fetch active plans from DB / storage for dynamic pricing & limits
+    let dbPlans = [];
+    if (getIsConnected()) {
+      try {
+        const Plan = require('../models/Plan');
+        dbPlans = await Plan.find({}).lean();
+      } catch (e) {}
+    }
+    if (!dbPlans || dbPlans.length === 0) {
+      try {
+        const { getCollection } = require('../services/storageService');
+        dbPlans = getCollection('plans', []);
+      } catch (e) {}
+    }
+
     // Plan pricing and staff limits map
     const planConfigMap = {
       'basic': { name: 'Basic', price: 1200, staffLimit: 1, badge: 'Basic' },
@@ -615,6 +630,21 @@ router.get('/superadmin', async (req, res) => {
       'advanced': { name: 'Standard', price: 2500, staffLimit: 2, badge: 'Standard' },
       'enterprise': { name: 'Standard', price: 2500, staffLimit: 2, badge: 'Standard' }
     };
+
+    (dbPlans || []).forEach(p => {
+      if (!p || !p.name) return;
+      const key = (p.code || p.name).toLowerCase().trim();
+      const staffLimitNum = (p.staffUserLimit && typeof p.staffUserLimit === 'string')
+        ? (p.staffUserLimit.toLowerCase().includes('unlimited') ? 999 : parseInt(p.staffUserLimit.replace(/\D/g, ''), 10) || 2)
+        : (Number(p.staffUserLimit) || 2);
+      planConfigMap[key] = {
+        name: p.name,
+        price: Number(p.price) || 2500,
+        staffLimit: staffLimitNum,
+        badge: p.badge || p.name
+      };
+      planConfigMap[p.name.toLowerCase().trim()] = planConfigMap[key];
+    });
 
     // Deduplicate registered admins by email
     const existingEmails = new Set();
@@ -655,9 +685,14 @@ router.get('/superadmin', async (req, res) => {
 
       const basePlanPrice = Number(planCfg.price) || 2500;
       const includedStaff = planCfg.staffLimit;
-      const extraStaff = (includedStaff === 999) ? 0 : Math.max(0, trustStaffCount - includedStaff);
-      const extraStaffRevenue = extraStaff * 500; // ₹500 per extra staff license
-      const totalRevenue = basePlanPrice + extraStaffRevenue;
+      const purchasedExtra = Number(u.extraStaffUsers || u.purchasedStaffUsers || 0);
+      const calculatedExtra = (includedStaff === 999) ? 0 : Math.max(0, trustStaffCount - includedStaff);
+      const extraStaff = Math.max(purchasedExtra, calculatedExtra);
+
+      // Cost per additional staff user is ₹861.23 (Pro-rata ₹800/365*333 + 18% GST = ₹861.23)
+      const EXTRA_STAFF_UNIT_COST = 861.23;
+      const extraStaffRevenue = Number((extraStaff * EXTRA_STAFF_UNIT_COST).toFixed(2));
+      const totalRevenue = Number((basePlanPrice + extraStaffRevenue).toFixed(2));
 
       const joinedDateStr = u.joinedDate || (u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : '15/01/2026');
       const validTillStr = u.validTill || '31/03/2027';
@@ -688,7 +723,7 @@ router.get('/superadmin', async (req, res) => {
     });
 
     // Compute dynamic aggregate subscription totals from real registered trusts
-    const grandTotalRevenue = adminRevenueList.reduce((sum, a) => sum + a.totalRevenue, 0);
+    const grandTotalRevenue = Number(adminRevenueList.reduce((sum, a) => sum + Number(a.totalRevenue || 0), 0).toFixed(2));
     const totalAdminsCount = adminRevenueList.length;
     const activeSubscriptionsCount = adminRevenueList.filter(a => (a.status || '').toLowerCase() === 'active').length;
 
@@ -744,48 +779,125 @@ router.get('/superadmin', async (req, res) => {
       adminRevenueList: adminRevenueList
     };
 
+    // 3. Compute 100% dynamic receiptsAnalytics from actual live receipts
+    const live = await getLiveReceiptsList();
+    const realTotalReceipts = live.length;
+    const realTotalVolume = live.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const realAvgValue = realTotalReceipts > 0 ? Number((realTotalVolume / realTotalReceipts).toFixed(2)) : 0;
+
+    // Real Donation Head Breakdown
+    const realHeadMap = new Map();
+    live.forEach(r => {
+      const head = (r.donationHead || r.head || 'General').trim();
+      const amt = Number(r.amount) || 0;
+      if (!realHeadMap.has(head)) {
+        realHeadMap.set(head, { head, count: 0, amount: 0 });
+      }
+      const item = realHeadMap.get(head);
+      item.count += 1;
+      item.amount += amt;
+    });
+
+    let realHeadBreakdown = Array.from(realHeadMap.values())
+      .sort((a, b) => b.amount - a.amount || b.count - a.count);
+
+    if (realHeadBreakdown.length === 0) {
+      realHeadBreakdown = [
+        { head: 'General', count: 0, amount: 0 }
+      ];
+    }
+
+    // Real Payment Mode Breakdown
+    const realPaymentMap = new Map();
+    live.forEach(r => {
+      const rawMode = (r.paymentMode || r.mode || r.paymentDetails || 'Online / UPI').trim();
+      let modeKey = 'Online / UPI';
+      const mLower = rawMode.toLowerCase();
+      if (mLower.includes('upi') || mLower.includes('online') || mLower.includes('gpay') || mLower.includes('phonepe') || mLower.includes('razorpay')) {
+        modeKey = 'Online / UPI';
+      } else if (mLower.includes('bank') || mLower.includes('neft') || mLower.includes('rtgs') || mLower.includes('imps') || mLower.includes('transfer')) {
+        modeKey = 'Bank Transfer / NEFT';
+      } else if (mLower.includes('cheque') || mLower.includes('check') || mLower.includes('draft') || mLower.includes('dd')) {
+        modeKey = 'Cheque';
+      } else if (mLower.includes('cash')) {
+        modeKey = 'Cash';
+      } else if (mLower.includes('card')) {
+        modeKey = 'Debit / Credit Card';
+      } else {
+        modeKey = rawMode;
+      }
+
+      const amt = Number(r.amount) || 0;
+      if (!realPaymentMap.has(modeKey)) {
+        realPaymentMap.set(modeKey, { mode: modeKey, count: 0, amount: 0 });
+      }
+      const item = realPaymentMap.get(modeKey);
+      item.count += 1;
+      item.amount += amt;
+    });
+
+    let realPaymentModeBreakdown = Array.from(realPaymentMap.values())
+      .map(pm => ({
+        ...pm,
+        percentage: realTotalVolume > 0 ? Number(((pm.amount / realTotalVolume) * 100).toFixed(1)) : 0
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    if (realPaymentModeBreakdown.length === 0) {
+      realPaymentModeBreakdown = [
+        { mode: 'Online / UPI', count: 0, amount: 0, percentage: 0 }
+      ];
+    }
+
     const receiptsAnalytics = {
-      totalReceiptsIssued: 2145,
-      totalDonationVolume: 8450000,
-      avgReceiptValue: 3939.39,
-      headBreakdown: [
-        { head: 'General', count: 1240, amount: 4950000 },
-        { head: 'Anna Chathiram', count: 420, amount: 1680000 },
-        { head: 'Food Drive', count: 265, amount: 890000 },
-        { head: 'Kind / Support', count: 135, amount: 540000 },
-        { head: 'Fengal Cyclone Relief', count: 85, amount: 390000 }
-      ],
-      paymentModeBreakdown: [
-        { mode: 'Online / UPI', count: 1480, amount: 5620000, percentage: 66.5 },
-        { mode: 'Bank Transfer / NEFT', count: 390, amount: 1980000, percentage: 23.4 },
-        { mode: 'Cheque', count: 185, amount: 650000, percentage: 7.7 },
-        { mode: 'Cash', count: 90, amount: 200000, percentage: 2.4 }
-      ]
+      totalReceiptsIssued: realTotalReceipts,
+      totalDonationVolume: realTotalVolume,
+      avgReceiptValue: realAvgValue,
+      headBreakdown: realHeadBreakdown,
+      paymentModeBreakdown: realPaymentModeBreakdown
     };
 
-    // Incorporate live receipts into Super Admin analytics
-    const live = await getLiveReceiptsList();
-    const liveVolume = live.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-    receiptsAnalytics.totalReceiptsIssued += live.length;
-    receiptsAnalytics.totalDonationVolume += liveVolume;
-    if (receiptsAnalytics.totalReceiptsIssued > 0) {
-      receiptsAnalytics.avgReceiptValue = Number(
-        (receiptsAnalytics.totalDonationVolume / receiptsAnalytics.totalReceiptsIssued).toFixed(2)
-      );
+    // 4. Compute 100% dynamic usersGrowth from actual registered trusts
+    const monthlyTrustMap = new Map();
+    realAdmins.forEach(u => {
+      let monthLabel = '';
+      if (u.createdAt) {
+        const d = new Date(u.createdAt);
+        if (!isNaN(d.getTime())) {
+          monthLabel = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        }
+      }
+      if (!monthLabel && u.joinedDate) {
+        const parts = u.joinedDate.split('/');
+        if (parts.length === 3) {
+          const d = new Date(parts[2], parts[1] - 1, parts[0]);
+          if (!isNaN(d.getTime())) {
+            monthLabel = d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+          }
+        }
+      }
+      if (!monthLabel) {
+        monthLabel = new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      }
+
+      monthlyTrustMap.set(monthLabel, (monthlyTrustMap.get(monthLabel) || 0) + 1);
+    });
+
+    let realMonthlyRegistrations = Array.from(monthlyTrustMap.entries()).map(([month, count]) => ({
+      month,
+      count
+    }));
+
+    if (realMonthlyRegistrations.length === 0) {
+      const currentMonthLabel = new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' });
+      realMonthlyRegistrations.push({ month: currentMonthLabel, count: totalAdminsCount });
     }
 
     const usersGrowth = {
       totalTrusts: totalAdminsCount,
       activeTrusts: activeSubscriptionsCount,
-      trialTrusts: adminRevenueList.filter(a => a.isTrial).length,
-      monthlyRegistrations: [
-        { month: 'Oct 2025', count: 5 },
-        { month: 'Nov 2025', count: 6 },
-        { month: 'Dec 2025', count: 7 },
-        { month: 'Jan 2026', count: 8 },
-        { month: 'Feb 2026', count: 6 },
-        { month: 'Mar 2026', count: totalAdminsCount }
-      ]
+      trialTrusts: adminRevenueList.filter(a => a.isTrial || (a.status || '').toLowerCase() === 'pending').length,
+      monthlyRegistrations: realMonthlyRegistrations
     };
 
     return res.json({
@@ -808,18 +920,30 @@ router.get('/superadmin', async (req, res) => {
 // Custom & Published Reports with Details
 // ==========================================
 const storageService = require('../services/storageService');
+const Report = require('../models/Report');
 
 // GET all reports with details
-router.get('/records', (req, res) => {
+router.get('/records', async (req, res) => {
   try {
-    let reports = storageService.getCollection('reports', []);
+    let reports = [];
+    if (getIsConnected()) {
+      try {
+        reports = await Report.find({}).sort({ createdAt: -1 }).lean();
+      } catch (dbErr) {
+        console.warn('DB read error for reports:', dbErr.message);
+      }
+    }
+    if (!reports || reports.length === 0) {
+      reports = storageService.getCollection('reports', []);
+    }
+
     const { trust, type, financialYear, status, search } = req.query;
 
     if (trust && trust !== 'all') {
       reports = reports.filter(r => 
         !r.targetTrust || 
         r.targetTrust === 'All Trusts' || 
-        r.targetTrust.toLowerCase().includes(trust.toLowerCase())
+        (r.targetTrust && r.targetTrust.toLowerCase().includes(trust.toLowerCase()))
       );
     }
     if (type) {
@@ -848,10 +972,20 @@ router.get('/records', (req, res) => {
 });
 
 // GET single report by ID
-router.get('/records/:id', (req, res) => {
+router.get('/records/:id', async (req, res) => {
   try {
-    const reports = storageService.getCollection('reports', []);
-    const report = reports.find(r => r._id === req.params.id);
+    let report = null;
+    if (getIsConnected()) {
+      try {
+        report = await Report.findById(req.params.id).lean();
+      } catch (dbErr) {
+        console.warn('DB read error for single report:', dbErr.message);
+      }
+    }
+    if (!report) {
+      const reports = storageService.getCollection('reports', []);
+      report = reports.find(r => r._id === req.params.id);
+    }
     if (!report) {
       return res.status(404).json({ success: false, message: 'Report record not found' });
     }
@@ -862,7 +996,7 @@ router.get('/records/:id', (req, res) => {
 });
 
 // CREATE report with details
-router.post('/records', (req, res) => {
+router.post('/records', async (req, res) => {
   try {
     const {
       title,
@@ -885,9 +1019,9 @@ router.post('/records', (req, res) => {
       return res.status(400).json({ success: false, message: 'Report title is required' });
     }
 
-    const reports = storageService.getCollection('reports', []);
-    const newReport = {
-      _id: 'rep_' + Date.now(),
+    const reportId = 'rep_' + Date.now();
+    const newReportData = {
+      _id: reportId,
       title: title.trim(),
       reportTypeId: reportTypeId || 'rt_custom',
       reportTypeName: reportTypeName || 'Custom Audit Report',
@@ -908,24 +1042,27 @@ router.post('/records', (req, res) => {
       updatedAt: new Date().toISOString()
     };
 
-    reports.unshift(newReport);
+    if (getIsConnected()) {
+      try {
+        await Report.create(newReportData);
+      } catch (dbErr) {
+        console.warn('DB write error for report:', dbErr.message);
+      }
+    }
+
+    const reports = storageService.getCollection('reports', []);
+    reports.unshift(newReportData);
     storageService.saveCollection('reports', reports);
 
-    return res.status(201).json({ success: true, message: 'Report generated and published successfully', data: newReport });
+    return res.status(201).json({ success: true, message: 'Report generated and published successfully', data: newReportData });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // UPDATE report with details
-router.put('/records/:id', (req, res) => {
+router.put('/records/:id', async (req, res) => {
   try {
-    const reports = storageService.getCollection('reports', []);
-    const index = reports.findIndex(r => r._id === req.params.id);
-    if (index === -1) {
-      return res.status(404).json({ success: false, message: 'Report record not found' });
-    }
-
     const {
       title,
       reportTypeId,
@@ -943,45 +1080,94 @@ router.put('/records/:id', (req, res) => {
       publishedToAdmin
     } = req.body;
 
-    reports[index] = {
-      ...reports[index],
-      title: title !== undefined ? title.trim() : reports[index].title,
-      reportTypeId: reportTypeId !== undefined ? reportTypeId : reports[index].reportTypeId,
-      reportTypeName: reportTypeName !== undefined ? reportTypeName : reports[index].reportTypeName,
-      targetTrust: targetTrust !== undefined ? targetTrust : reports[index].targetTrust,
-      financialYear: financialYear !== undefined ? financialYear : reports[index].financialYear,
-      fromDate: fromDate !== undefined ? fromDate : reports[index].fromDate,
-      toDate: toDate !== undefined ? toDate : reports[index].toDate,
-      totalVolume: totalVolume !== undefined ? Number(totalVolume) : reports[index].totalVolume,
-      totalRecords: totalRecords !== undefined ? Number(totalRecords) : reports[index].totalRecords,
-      executiveSummary: executiveSummary !== undefined ? executiveSummary : reports[index].executiveSummary,
-      keyFindings: keyFindings !== undefined 
-        ? (Array.isArray(keyFindings) ? keyFindings : keyFindings.split('\n').map(s => s.trim()).filter(Boolean))
-        : reports[index].keyFindings,
-      remarks: remarks !== undefined ? remarks : reports[index].remarks,
-      status: status !== undefined ? status : reports[index].status,
-      publishedToAdmin: publishedToAdmin !== undefined ? Boolean(publishedToAdmin) : reports[index].publishedToAdmin,
-      updatedAt: new Date().toISOString()
-    };
+    let updatedReport = null;
+    if (getIsConnected()) {
+      try {
+        const updateObj = { updatedAt: new Date().toISOString() };
+        if (title !== undefined) updateObj.title = title.trim();
+        if (reportTypeId !== undefined) updateObj.reportTypeId = reportTypeId;
+        if (reportTypeName !== undefined) updateObj.reportTypeName = reportTypeName;
+        if (targetTrust !== undefined) updateObj.targetTrust = targetTrust;
+        if (financialYear !== undefined) updateObj.financialYear = financialYear;
+        if (fromDate !== undefined) updateObj.fromDate = fromDate;
+        if (toDate !== undefined) updateObj.toDate = toDate;
+        if (totalVolume !== undefined) updateObj.totalVolume = Number(totalVolume);
+        if (totalRecords !== undefined) updateObj.totalRecords = Number(totalRecords);
+        if (executiveSummary !== undefined) updateObj.executiveSummary = executiveSummary;
+        if (keyFindings !== undefined) {
+          updateObj.keyFindings = Array.isArray(keyFindings) ? keyFindings : keyFindings.split('\n').map(s => s.trim()).filter(Boolean);
+        }
+        if (remarks !== undefined) updateObj.remarks = remarks;
+        if (status !== undefined) updateObj.status = status;
+        if (publishedToAdmin !== undefined) updateObj.publishedToAdmin = Boolean(publishedToAdmin);
 
-    storageService.saveCollection('reports', reports);
-    return res.json({ success: true, message: 'Report updated successfully', data: reports[index] });
+        updatedReport = await Report.findByIdAndUpdate(req.params.id, updateObj, { new: true }).lean();
+      } catch (dbErr) {
+        console.warn('DB update error for report:', dbErr.message);
+      }
+    }
+
+    const reports = storageService.getCollection('reports', []);
+    const index = reports.findIndex(r => r._id === req.params.id);
+    if (index !== -1) {
+      reports[index] = {
+        ...reports[index],
+        title: title !== undefined ? title.trim() : reports[index].title,
+        reportTypeId: reportTypeId !== undefined ? reportTypeId : reports[index].reportTypeId,
+        reportTypeName: reportTypeName !== undefined ? reportTypeName : reports[index].reportTypeName,
+        targetTrust: targetTrust !== undefined ? targetTrust : reports[index].targetTrust,
+        financialYear: financialYear !== undefined ? financialYear : reports[index].financialYear,
+        fromDate: fromDate !== undefined ? fromDate : reports[index].fromDate,
+        toDate: toDate !== undefined ? toDate : reports[index].toDate,
+        totalVolume: totalVolume !== undefined ? Number(totalVolume) : reports[index].totalVolume,
+        totalRecords: totalRecords !== undefined ? Number(totalRecords) : reports[index].totalRecords,
+        executiveSummary: executiveSummary !== undefined ? executiveSummary : reports[index].executiveSummary,
+        keyFindings: keyFindings !== undefined 
+          ? (Array.isArray(keyFindings) ? keyFindings : keyFindings.split('\n').map(s => s.trim()).filter(Boolean))
+          : reports[index].keyFindings,
+        remarks: remarks !== undefined ? remarks : reports[index].remarks,
+        status: status !== undefined ? status : reports[index].status,
+        publishedToAdmin: publishedToAdmin !== undefined ? Boolean(publishedToAdmin) : reports[index].publishedToAdmin,
+        updatedAt: new Date().toISOString()
+      };
+      storageService.saveCollection('reports', reports);
+      if (!updatedReport) updatedReport = reports[index];
+    }
+
+    if (!updatedReport) {
+      return res.status(404).json({ success: false, message: 'Report record not found' });
+    }
+
+    return res.json({ success: true, message: 'Report updated successfully', data: updatedReport });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // DELETE report
-router.delete('/records/:id', (req, res) => {
+router.delete('/records/:id', async (req, res) => {
   try {
-    let reports = storageService.getCollection('reports', []);
-    const existing = reports.find(r => r._id === req.params.id);
-    if (!existing) {
-      return res.status(404).json({ success: false, message: 'Report record not found' });
+    let deleted = false;
+    if (getIsConnected()) {
+      try {
+        const resDb = await Report.findByIdAndDelete(req.params.id);
+        if (resDb) deleted = true;
+      } catch (dbErr) {
+        console.warn('DB delete error for report:', dbErr.message);
+      }
     }
 
-    reports = reports.filter(r => r._id !== req.params.id);
-    storageService.saveCollection('reports', reports);
+    let reports = storageService.getCollection('reports', []);
+    const existing = reports.find(r => r._id === req.params.id);
+    if (existing) {
+      reports = reports.filter(r => r._id !== req.params.id);
+      storageService.saveCollection('reports', reports);
+      deleted = true;
+    }
+
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Report record not found' });
+    }
 
     return res.json({ success: true, message: 'Report deleted successfully' });
   } catch (err) {

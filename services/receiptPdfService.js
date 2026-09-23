@@ -84,7 +84,7 @@ function getImageBuffer(imgSource) {
 function renderReceiptPages(doc, receipt) {
   const financialYear = receipt.financialYear || receipt.fy || '2026-2027';
   const trustName = receipt.trustName || 'Trust Organization';
-  const trustPrefix = (trustName.replace(/[^a-zA-Z]/g, '').slice(0, 4).toUpperCase()) || 'REC';
+  const trustPrefix = (trustName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase()) || 'REC';
   const receiptNo = receipt.receiptNo || `${trustPrefix}/${financialYear}/1`;
   const donorName = receipt.donorName || receipt.name || 'Kishore';
   const address = receipt.address || 'chennai';

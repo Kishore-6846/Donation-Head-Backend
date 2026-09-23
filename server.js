@@ -21,6 +21,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const reportTypeRoutes = require('./routes/reportTypeRoutes');
 const dynamicReportRoutes = require('./routes/dynamicReportRoutes');
 const certificateRoutes = require('./routes/certificateRoutes');
+const subscriptionRoutes = require('./routes/subscriptionRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -65,6 +66,7 @@ trustRouter.use('/dynamic-reports', dynamicReportRoutes);
 trustRouter.use('/certificates', certificateRoutes);
 trustRouter.use('/dashboard', dashboardRoutes);
 trustRouter.use('/payment', paymentRoutes);
+trustRouter.use('/subscriptions', subscriptionRoutes);
 
 // Build Super Admin scoped router
 const superAdminRouter = express.Router();
@@ -84,6 +86,7 @@ superAdminRouter.use('/all-receipts', receiptRoutes);
 superAdminRouter.use('/donation-heads', headRoutes);
 superAdminRouter.use('/roles', roleRoutes);
 superAdminRouter.use('/staff', staffRoutes);
+superAdminRouter.use('/subscriptions', subscriptionRoutes);
 
 // Standard Core API Routes
 app.use('/api/auth', authRoutes);
@@ -102,6 +105,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/receipt-types', receiptTypeRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
 // Mount Trust scoped API prefixes
 app.use(['/api/trust', '/trust/api'], trustRouter);
@@ -123,23 +127,14 @@ app.get([
   '/print_receipt.php'
 ], handleReceiptPdfStream);
 
-// Invoice PDF generation for My Subscriptions
-const { generateInvoicePDF } = require('./services/invoicePdfService');
-
+// Fallback direct invoice download endpoints
 app.get([
-  '/api/subscriptions/invoice/:invoiceNo/pdf',
-  '/api/subscriptions/invoice/pdf',
   '/trust/download-invoice',
   '/trust/download_invoice',
   '/trust/download-invoice.php',
   '/trust/download_invoice.php'
 ], (req, res) => {
-  try {
-    return generateInvoicePDF({}, res);
-  } catch (err) {
-    console.error('Error generating invoice PDF:', err);
-    return res.status(500).send('Error generating invoice');
-  }
+  res.redirect(`/api/subscriptions/invoice/${req.query.invoiceNo || 'SP-DR-26-27-0031'}/pdf`);
 });
 
 // Health check and warm-up endpoints

@@ -260,17 +260,26 @@ const initialDynamicReports = [
   }
 ];
 
-function getDynamicReports() {
+const DynamicReport = require('../models/DynamicReport');
+const { getIsConnected } = require('../config/db');
+
+async function getDynamicReports() {
+  if (getIsConnected()) {
+    try {
+      const dbReports = await DynamicReport.find({}).lean();
+      const map = new Map();
+      initialDynamicReports.forEach(r => map.set(r._id, r));
+      (dbReports || []).forEach(r => map.set(r._id, r));
+      return Array.from(map.values());
+    } catch (e) {
+      console.warn('DB dynamic reports error:', e.message);
+    }
+  }
   const custom = storageService.getCollection('dynamicReports', []);
   const map = new Map();
-  // Standard templates serve as base defaults; custom reports can override them or add new ones
   initialDynamicReports.forEach(r => map.set(r._id, r));
   custom.forEach(r => map.set(r._id, r));
   return Array.from(map.values());
-}
-
-function saveDynamicReports(data) {
-  return storageService.saveCollection('dynamicReports', data);
 }
 
 // GET all dynamic reports
@@ -324,7 +333,7 @@ router.get('/:id', (req, res) => {
 });
 
 // CREATE new dynamic report template with data rows
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const {
       title,
@@ -349,7 +358,7 @@ router.post('/', (req, res) => {
       return res.status(400).json({ success: false, message: 'Report title is required' });
     }
 
-    const reports = getDynamicReports();
+    const reports = await getDynamicReports();
     const generatedCode = code || 'REP_' + title.toUpperCase().replace(/[^A-Z0-9]/g, '_').substring(0, 16);
 
     const defaultColumns = [
@@ -392,8 +401,13 @@ router.post('/', (req, res) => {
       updatedAt: new Date().toISOString()
     };
 
-    reports.unshift(newReport);
-    saveDynamicReports(reports);
+    if (getIsConnected()) {
+      try {
+        await DynamicReport.create(newReport);
+      } catch (e) {
+        console.warn('DB error creating dynamic report:', e.message);
+      }
+    }
 
     return res.status(201).json({
       success: true,
@@ -406,15 +420,9 @@ router.post('/', (req, res) => {
 });
 
 // UPDATE report template, columns, and data rows
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
-    const reports = getDynamicReports();
     const target = req.params.id;
-    const index = reports.findIndex(r => r._id === target || r.code === target || (r.id && r.id === target));
-    if (index === -1) {
-      return res.status(404).json({ success: false, message: 'Report template not found' });
-    }
-
     const {
       title,
       code,
@@ -434,47 +442,53 @@ router.put('/:id', (req, res) => {
       status
     } = req.body;
 
-    const existing = reports[index];
+    let safeRows = Array.isArray(dataRows) ? dataRows.map((r, i) => ({
+      rowId: r.rowId || 'row_' + (Date.now() + i),
+      ...r
+    })) : undefined;
 
-    let safeRows = existing.dataRows;
-    if (Array.isArray(dataRows)) {
-      safeRows = dataRows.map((r, i) => ({
-        rowId: r.rowId || 'row_' + (Date.now() + i),
-        ...r
-      }));
-    }
-
-    const totalVolume = safeRows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
-
-    reports[index] = {
-      ...existing,
-      title: title !== undefined ? title.trim() : existing.title,
-      code: code !== undefined ? code.toUpperCase() : existing.code,
-      category: category !== undefined ? category : existing.category,
-      reportBase: reportBase !== undefined ? reportBase : (existing.reportBase || 'receipts'),
-      reportBaseLabel: reportBaseLabel !== undefined ? reportBaseLabel : (existing.reportBaseLabel || 'Receipts & Transactions'),
-      filters: filters !== undefined ? filters : (existing.filters || {}),
-      enabledFilters: enabledFilters !== undefined ? enabledFilters : (existing.enabledFilters || {}),
-      selectedFieldKeys: selectedFieldKeys !== undefined ? selectedFieldKeys : (existing.selectedFieldKeys || []),
-      targetTrust: targetTrust !== undefined ? targetTrust : existing.targetTrust,
-      financialYear: financialYear !== undefined ? financialYear : existing.financialYear,
-      fromDate: fromDate !== undefined ? fromDate : existing.fromDate,
-      toDate: toDate !== undefined ? toDate : existing.toDate,
-      description: description !== undefined ? description : existing.description,
-      columns: Array.isArray(columns) && columns.length > 0 ? columns : existing.columns,
-      dataRows: safeRows,
-      totalVolume,
-      totalRecords: safeRows.length,
-      status: status !== undefined ? status : existing.status,
+    const updates = {
       updatedAt: new Date().toISOString()
     };
+    if (title !== undefined) updates.title = title.trim();
+    if (code !== undefined) updates.code = code.toUpperCase();
+    if (category !== undefined) updates.category = category;
+    if (reportBase !== undefined) updates.reportBase = reportBase;
+    if (reportBaseLabel !== undefined) updates.reportBaseLabel = reportBaseLabel;
+    if (filters !== undefined) updates.filters = filters;
+    if (enabledFilters !== undefined) updates.enabledFilters = enabledFilters;
+    if (selectedFieldKeys !== undefined) updates.selectedFieldKeys = selectedFieldKeys;
+    if (targetTrust !== undefined) updates.targetTrust = targetTrust;
+    if (financialYear !== undefined) updates.financialYear = financialYear;
+    if (fromDate !== undefined) updates.fromDate = fromDate;
+    if (toDate !== undefined) updates.toDate = toDate;
+    if (description !== undefined) updates.description = description;
+    if (columns !== undefined) updates.columns = columns;
+    if (safeRows !== undefined) {
+      updates.dataRows = safeRows;
+      updates.totalVolume = safeRows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+      updates.totalRecords = safeRows.length;
+    }
+    if (status !== undefined) updates.status = status;
 
-    saveDynamicReports(reports);
+    let updated = null;
+    if (getIsConnected()) {
+      try {
+        updated = await DynamicReport.findOneAndUpdate(
+          { $or: [{ _id: target }, { code: target }] },
+          { $set: updates },
+          { new: true }
+        ).lean();
+      } catch (e) {}
+    }
+
+    const reports = await getDynamicReports();
+    const item = reports.find(r => r._id === target || r.code === target);
 
     return res.json({
       success: true,
       message: 'Report template and data rows updated successfully',
-      data: reports[index]
+      data: updated || item
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -482,17 +496,14 @@ router.put('/:id', (req, res) => {
 });
 
 // DELETE report template
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    let reports = getDynamicReports();
-    const existing = reports.find(r => r._id === req.params.id || r.code === req.params.id || r.id === req.params.id);
-    if (!existing) {
-      return res.status(404).json({ success: false, message: 'Report template not found' });
+    const target = req.params.id;
+    if (getIsConnected()) {
+      try {
+        await DynamicReport.findOneAndDelete({ $or: [{ _id: target }, { code: target }] });
+      } catch (e) {}
     }
-
-    const targetId = existing._id;
-    reports = reports.filter(r => r._id !== targetId);
-    saveDynamicReports(reports);
 
     return res.json({ success: true, message: 'Report template deleted successfully' });
   } catch (err) {
@@ -501,9 +512,9 @@ router.delete('/:id', (req, res) => {
 });
 
 // ADD a single data row inside the template
-router.post('/:id/rows', (req, res) => {
+router.post('/:id/rows', async (req, res) => {
   try {
-    const reports = getDynamicReports();
+    const reports = await getDynamicReports();
     const index = reports.findIndex(r => r._id === req.params.id);
     if (index === -1) {
       return res.status(404).json({ success: false, message: 'Report template not found' });
@@ -520,6 +531,15 @@ router.post('/:id/rows', (req, res) => {
     reports[index].totalRecords = reports[index].dataRows.length;
     reports[index].updatedAt = new Date().toISOString();
 
+    if (getIsConnected()) {
+      try {
+        await DynamicReport.findOneAndUpdate(
+          { _id: req.params.id },
+          { $set: { dataRows: reports[index].dataRows, totalVolume: reports[index].totalVolume, totalRecords: reports[index].totalRecords, updatedAt: reports[index].updatedAt } }
+        );
+      } catch (e) {}
+    }
+
     saveDynamicReports(reports);
 
     return res.status(201).json({ success: true, message: 'Data row added', data: newRow, report: reports[index] });
@@ -529,9 +549,9 @@ router.post('/:id/rows', (req, res) => {
 });
 
 // ALTER/UPDATE a specific row inside the template
-router.put('/:id/rows/:rowId', (req, res) => {
+router.put('/:id/rows/:rowId', async (req, res) => {
   try {
-    const reports = getDynamicReports();
+    const reports = await getDynamicReports();
     const index = reports.findIndex(r => r._id === req.params.id);
     if (index === -1) {
       return res.status(404).json({ success: false, message: 'Report template not found' });
@@ -551,6 +571,15 @@ router.put('/:id/rows/:rowId', (req, res) => {
     reports[index].totalVolume = reports[index].dataRows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
     reports[index].updatedAt = new Date().toISOString();
 
+    if (getIsConnected()) {
+      try {
+        await DynamicReport.findOneAndUpdate(
+          { _id: req.params.id },
+          { $set: { dataRows: reports[index].dataRows, totalVolume: reports[index].totalVolume, totalRecords: reports[index].totalRecords, updatedAt: reports[index].updatedAt } }
+        );
+      } catch (e) {}
+    }
+
     saveDynamicReports(reports);
 
     return res.json({ success: true, message: 'Data row updated', data: reports[index].dataRows[rowIndex], report: reports[index] });
@@ -560,9 +589,9 @@ router.put('/:id/rows/:rowId', (req, res) => {
 });
 
 // DELETE a specific row from the template
-router.delete('/:id/rows/:rowId', (req, res) => {
+router.delete('/:id/rows/:rowId', async (req, res) => {
   try {
-    const reports = getDynamicReports();
+    const reports = await getDynamicReports();
     const index = reports.findIndex(r => r._id === req.params.id);
     if (index === -1) {
       return res.status(404).json({ success: false, message: 'Report template not found' });
@@ -572,6 +601,15 @@ router.delete('/:id/rows/:rowId', (req, res) => {
     reports[index].totalVolume = reports[index].dataRows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
     reports[index].totalRecords = reports[index].dataRows.length;
     reports[index].updatedAt = new Date().toISOString();
+
+    if (getIsConnected()) {
+      try {
+        await DynamicReport.findOneAndUpdate(
+          { _id: req.params.id },
+          { $set: { dataRows: reports[index].dataRows, totalVolume: reports[index].totalVolume, totalRecords: reports[index].totalRecords, updatedAt: reports[index].updatedAt } }
+        );
+      } catch (e) {}
+    }
 
     saveDynamicReports(reports);
 

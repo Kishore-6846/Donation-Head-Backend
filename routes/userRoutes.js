@@ -104,6 +104,36 @@ router.get('/', async (req, res) => {
       ];
     }
 
+    let allDbPlans = [];
+    if (getIsConnected()) {
+      try {
+        allDbPlans = await Plan.find({}).lean();
+      } catch (e) {}
+    }
+    if (!allDbPlans || allDbPlans.length === 0) {
+      try {
+        const { getCollection } = require('../services/storageService');
+        allDbPlans = getCollection('plans', []);
+      } catch (e) {}
+    }
+
+    const getBasePlanLimit = (planName) => {
+      const pLower = (planName || 'Standard').toLowerCase().trim();
+      const found = (allDbPlans || []).find(p => p && (p.name?.toLowerCase() === pLower || p.code?.toLowerCase() === pLower));
+      if (found && found.staffUserLimit) {
+        if (typeof found.staffUserLimit === 'string' && found.staffUserLimit.toLowerCase().includes('unlimited')) {
+          return 999;
+        }
+        const parsed = parseInt(String(found.staffUserLimit).replace(/\D/g, ''), 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      if (pLower.includes('basic') || pLower.includes('starter')) return 1;
+      if (pLower.includes('standard')) return 2;
+      if (pLower.includes('advanced')) return 9;
+      if (pLower.includes('enterprise') || pLower.includes('unlimited')) return 999;
+      return 2;
+    };
+
     if (getIsConnected()) {
       try {
         const [dbStaff, dbReceipts, dbUsers] = await Promise.all([
@@ -118,8 +148,11 @@ router.get('/', async (req, res) => {
         const allReceipts = getIsConnected() ? allDbReceipts : getCollection('receipts', []);
 
         usersList = dbUsers.map(u => {
-          const staffCount = matchTrustStaff(u, allStaff);
+          const createdStaff = matchTrustStaff(u, allStaff);
           const receiptsCount = matchTrustReceipts(u, allReceipts);
+          const extraStaff = Number(u.extraStaffUsers || u.purchasedStaffUsers || 0);
+          const baseStaffLimit = getBasePlanLimit(u.plan);
+          const totalStaff = baseStaffLimit === 999 ? 999 : Math.max(createdStaff, baseStaffLimit + extraStaff);
 
           return {
             _id: u._id.toString(),
@@ -138,11 +171,15 @@ router.get('/', async (req, res) => {
             fcraNo: u.fcraNo || '',
             section80GRegNo: u.section80GRegNo || '',
             plan: u.plan || 'Standard',
-            extraStaffUsers: Number(u.extraStaffUsers || u.purchasedStaffUsers || 0),
+            baseStaffLimit: baseStaffLimit,
+            includedStaff: baseStaffLimit === 999 ? 'Unlimited' : baseStaffLimit,
+            extraStaffUsers: extraStaff,
             purchasedStaffUsers: Number(u.purchasedStaffUsers || 0),
             paidAmount: Number(u.paidAmount || 0),
             receiptsCount: receiptsCount,
-            staffCount: staffCount,
+            createdStaffCount: createdStaff,
+            staffCount: totalStaff,
+            hasExtraStaff: extraStaff > 0 || (baseStaffLimit !== 999 && totalStaff > baseStaffLimit),
             status: u.status || 'Active',
             joinedDate: u.joinedDate || (u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : 'Today'),
             createdAt: u.createdAt,
@@ -160,12 +197,21 @@ router.get('/', async (req, res) => {
       usersList = getUsers()
         .filter(u => !u.isSuperAdmin && (!u.role || !u.role.toLowerCase().includes('super')))
         .map(u => {
-          const staffCount = matchTrustStaff(u, allStaff);
+          const createdStaff = matchTrustStaff(u, allStaff);
           const receiptsCount = matchTrustReceipts(u, allReceipts);
+          const extraStaff = Number(u.extraStaffUsers || u.purchasedStaffUsers || 0);
+          const baseStaffLimit = getBasePlanLimit(u.plan);
+          const totalStaff = baseStaffLimit === 999 ? 999 : Math.max(createdStaff, baseStaffLimit + extraStaff);
 
           return {
             ...u,
-            staffCount: staffCount,
+            baseStaffLimit: baseStaffLimit,
+            includedStaff: baseStaffLimit === 999 ? 'Unlimited' : baseStaffLimit,
+            extraStaffUsers: extraStaff,
+            purchasedStaffUsers: Number(u.purchasedStaffUsers || 0),
+            createdStaffCount: createdStaff,
+            staffCount: totalStaff,
+            hasExtraStaff: extraStaff > 0 || (baseStaffLimit !== 999 && totalStaff > baseStaffLimit),
             receiptsCount: receiptsCount
           };
         });

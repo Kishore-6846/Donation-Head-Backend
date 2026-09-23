@@ -41,7 +41,7 @@ const generateReceiptNo = async (trustPrefix = 'REC', startSeq = 1, trustEmail =
   try {
     let existingReceipts = [];
     if (getIsConnected()) {
-      const orClauses = [{ receiptNo: new RegExp(searchPattern, 'i') }];
+      const orClauses = [];
       if (tEmail) {
         orClauses.push({ trustEmail: new RegExp(`^${tEmail}$`, 'i') });
         orClauses.push({ createdBy: new RegExp(`^${tEmail}$`, 'i') });
@@ -251,6 +251,7 @@ const enrichReceiptWithTrustData = async (receipt, req = {}) => {
 
     return {
       ...receipt,
+      _adminUser: adminUser,
       trustName: adminUser?.trustName || adminUser?.name || receipt.trustName || 'Trust Organization',
       trustAddress: adminUser?.address || receipt.trustAddress || '',
       trustPhone: adminUser?.mobile || adminUser?.phone || receipt.trustPhone || '',
@@ -269,6 +270,7 @@ const enrichReceiptWithTrustData = async (receipt, req = {}) => {
         : (receipt.receiptWatermarkText || receipt.watermarkText || ''),
       receiptWatermarkText: (adminUser?.receiptWatermarkText !== undefined && adminUser?.receiptWatermarkText !== null)
         ? adminUser.receiptWatermarkText
+        : (receipt.receiptWatermarkText || receipt.watermarkText || ''),
       signatoryName: adminUser?.signatoryName ||
         [adminUser?.firstName, adminUser?.middleName, adminUser?.surname].filter(Boolean).join(' ').trim() ||
         receipt.signatoryName ||
@@ -445,7 +447,7 @@ router.get('/', async (req, res) => {
 
 // GET next receipt number preview
 router.get('/next-number', async (req, res) => {
-  const { trustName = '', prefix = '', startNumber = '', trustEmail = '' } = req.query;
+  const { trustName = '', prefix = '', startNumber = '', trustEmail = '', email = '' } = req.query;
 
   let tokenEmail = '';
   let tokenTrustName = '';
@@ -462,8 +464,8 @@ router.get('/next-number', async (req, res) => {
     } catch (e) {}
   }
 
-  const effectiveEmail = (trustEmail || req.headers['x-trust-email'] || tokenEmail || '').trim();
-  const effectiveName = (trustName || req.headers['x-trust-name'] || tokenTrustName || '').trim();
+  const effectiveEmail = (trustEmail || email || req.headers['x-trust-email'] || tokenEmail || '').trim();
+  let effectiveName = (trustName || req.headers['x-trust-name'] || tokenTrustName || '').trim();
 
   let customPrefix = prefix;
   let customStart = startNumber ? Number(startNumber) : null;
@@ -480,6 +482,11 @@ router.get('/next-number', async (req, res) => {
       trustUser = allUsers.find(u => u.email && u.email.toLowerCase() === effectiveEmail.toLowerCase());
     }
     if (trustUser) {
+      if (trustUser.trustName && trustUser.trustName !== 'DONATION RECEIPT SUPER ADMIN') {
+        effectiveName = trustUser.trustName;
+      } else if (trustUser.name && !trustUser.name.toLowerCase().includes('super') && (!trustUser.contactPerson || trustUser.name !== trustUser.contactPerson)) {
+        effectiveName = trustUser.name;
+      }
       if (trustUser.receiptPrefix && !customPrefix) {
         customPrefix = trustUser.receiptPrefix;
       }
@@ -493,9 +500,11 @@ router.get('/next-number', async (req, res) => {
     customStart = 1;
   }
 
-  const p = customPrefix || (effectiveName && effectiveName !== 'DONATION RECEIPT SUPER ADMIN' && effectiveName !== 'Trust Organization'
+  const rawCleanTrust = (effectiveName && effectiveName !== 'DONATION RECEIPT SUPER ADMIN' && effectiveName !== 'Trust Organization')
     ? effectiveName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase()
-    : 'REC');
+    : 'REC';
+
+  const p = customPrefix || rawCleanTrust || 'REC';
 
   const nextNo = await generateReceiptNo(p, customStart, effectiveEmail, effectiveName);
   return res.json({
@@ -880,12 +889,21 @@ router.post(['/:id/send-email', '/send-email'], async (req, res) => {
     const emailResult = await sendReceiptEmailWithPdf({
       to: donorEmail,
       receipt: mergedReceipt,
-      pdfBuffer
+      pdfBuffer,
+      trustUser: mergedReceipt._adminUser
     });
+
+    if (!emailResult.success) {
+      return res.status(400).json({
+        success: false,
+        configured: emailResult.configured === false ? false : true,
+        message: emailResult.message || 'Failed to deliver email'
+      });
+    }
 
     return res.json({
       success: true,
-      message: `Receipt PDF sent successfully to ${donorEmail}`,
+      message: `Official 80G Receipt PDF (${mergedReceipt.receiptNo || 'Receipt'}) successfully delivered to ${donorEmail}`,
       previewUrl: emailResult.previewUrl
     });
   } catch (error) {
@@ -968,7 +986,7 @@ router.post('/', async (req, res) => {
       Boolean(createdBy && (createdBy.toLowerCase().includes('superadmin') || createdBy === 'Super Admin'));
 
     const finalTrustEmail = (trustEmail && trustEmail.trim()) ? trustEmail.trim() : (req.user?.email || '');
-    const finalTrustName = (trustName && trustName.trim()) ? trustName.trim() : (req.user?.trustName || 'Trust Organization');
+    let resolvedTrustName = (trustName && trustName.trim()) ? trustName.trim() : (req.user?.trustName || 'Trust Organization');
     const creatorId = isSuperAdminCreator ? 'Super Admin' : (createdBy || finalTrustEmail || 'admin');
 
     // Resolve user's configured receipt prefix and start number for guaranteed sequence isolation
@@ -985,35 +1003,50 @@ router.post('/', async (req, res) => {
         trustUser = getUsers().find(u => u.email && u.email.toLowerCase() === finalTrustEmail.toLowerCase());
       }
       if (trustUser) {
+        if (trustUser.trustName && trustUser.trustName !== 'DONATION RECEIPT SUPER ADMIN') {
+          resolvedTrustName = trustUser.trustName;
+        } else if (trustUser.name && !trustUser.name.toLowerCase().includes('super') && (!trustUser.contactPerson || trustUser.name !== trustUser.contactPerson)) {
+          resolvedTrustName = trustUser.name;
+        }
         if (!userPrefix && trustUser.receiptPrefix) userPrefix = trustUser.receiptPrefix;
         if (trustUser.receiptStartNumber) userStartSeq = Number(trustUser.receiptStartNumber) || 1;
       }
     }
     if (!userPrefix) {
-      const p = finalTrustName && finalTrustName !== 'Trust Organization' && finalTrustName !== 'DONATION RECEIPT SUPER ADMIN'
-        ? finalTrustName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase()
+      const p = resolvedTrustName && resolvedTrustName !== 'Trust Organization' && resolvedTrustName !== 'DONATION RECEIPT SUPER ADMIN'
+        ? resolvedTrustName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase()
         : 'REC';
       userPrefix = p;
     }
 
     let receiptNumber = (receiptNo || '').trim();
-    // Validate uniqueness of receiptNumber: if empty or already taken in DB / file storage, generate guaranteed unique next number
     let isDuplicate = false;
+    let isInvalidPrefix = false;
+
+    const rawPrefixHead = userPrefix.split('/')[0].trim().toUpperCase();
     if (receiptNumber) {
-      if (getIsConnected()) {
-        const count = await DonationReceipt.countDocuments({ receiptNo: receiptNumber });
-        if (count > 0) isDuplicate = true;
+      if (rawPrefixHead && rawPrefixHead !== 'REC') {
+        const currentHead = receiptNumber.split('/')[0].trim().toUpperCase();
+        if (currentHead && currentHead !== rawPrefixHead) {
+          isInvalidPrefix = true;
+        }
       }
-      if (!isDuplicate) {
-        const fileList = getReceipts();
-        if (fileList.some(r => r.receiptNo && r.receiptNo.toLowerCase() === receiptNumber.toLowerCase())) {
-          isDuplicate = true;
+      if (!isInvalidPrefix) {
+        if (getIsConnected()) {
+          const count = await DonationReceipt.countDocuments({ receiptNo: receiptNumber });
+          if (count > 0) isDuplicate = true;
+        }
+        if (!isDuplicate) {
+          const fileList = getReceipts();
+          if (fileList.some(r => r.receiptNo && r.receiptNo.toLowerCase() === receiptNumber.toLowerCase())) {
+            isDuplicate = true;
+          }
         }
       }
     }
 
-    if (!receiptNumber || isDuplicate) {
-      receiptNumber = await generateReceiptNo(userPrefix, userStartSeq, finalTrustEmail, finalTrustName);
+    if (!receiptNumber || isDuplicate || isInvalidPrefix) {
+      receiptNumber = await generateReceiptNo(userPrefix, userStartSeq, finalTrustEmail, resolvedTrustName);
     }
 
     if (getIsConnected()) {

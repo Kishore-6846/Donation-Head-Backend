@@ -2,18 +2,86 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 
+// Helper to convert number to Indian Rupees words
+function numberToWordsINR(amount) {
+  const num = Math.round(Number(amount) || 0);
+  if (num === 0) return 'INR Zero Only/-';
+
+  const units = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+  function convertBelowThousand(n) {
+    let str = '';
+    if (n >= 100) {
+      str += units[Math.floor(n / 100)] + ' Hundred ';
+      n %= 100;
+    }
+    if (n >= 20) {
+      str += tens[Math.floor(n / 10)] + ' ';
+      n %= 10;
+    }
+    if (n > 0) {
+      str += units[n] + ' ';
+    }
+    return str.trim();
+  }
+
+  let crore = Math.floor(num / 10000000);
+  let lakh = Math.floor((num % 10000000) / 100000);
+  let thousand = Math.floor((num % 100000) / 1000);
+  let remainder = num % 1000;
+
+  let result = '';
+  if (crore > 0) result += convertBelowThousand(crore) + ' Crore ';
+  if (lakh > 0) result += convertBelowThousand(lakh) + ' Lakh ';
+  if (thousand > 0) result += convertBelowThousand(thousand) + ' Thousand ';
+  if (remainder > 0) result += convertBelowThousand(remainder) + ' ';
+
+  return `INR ${result.trim()} Only/-`;
+}
+
 function generateInvoicePDF(invoiceData = {}, res) {
+  const invoiceNo = invoiceData.invoiceNo || 'SP/DR/26-27/0031';
+  const invoiceDate = invoiceData.invoiceDate || invoiceData.date || '10 Sep 2026';
+
+  const trustName = invoiceData.trustName || invoiceData.name || 'Trust Organization';
+  const address = invoiceData.address || '';
+  const state = invoiceData.state || 'Tamil Nadu';
+  const email = invoiceData.email || '';
+  const mobile = invoiceData.mobile || invoiceData.phone || '';
+
+  const rawPlanName = invoiceData.planName || invoiceData.plan || 'Base Plan';
+  const displayPlanName = rawPlanName.startsWith('DonationReceipt.in Subscription')
+    ? rawPlanName
+    : `DonationReceipt.in Subscription - ${rawPlanName.includes('Plan') ? rawPlanName : rawPlanName + ' Plan'}`;
+
+  const validityText = invoiceData.validityText || '08 Aug 2026 - 07 Aug 2027';
+  const includedUsers = invoiceData.includedUsers
+    ? String(invoiceData.includedUsers).replace(/[^0-9]/g, '') || '1'
+    : '1';
+
+  const basePriceNum = Number(invoiceData.basePrice || invoiceData.price || 1200);
+  const gstAmountNum = Number(invoiceData.gstAmount || Math.round(basePriceNum * 0.18 * 100) / 100);
+  const totalAmountNum = Number(invoiceData.totalAmount || (basePriceNum + gstAmountNum));
+
+  const basePriceFormatted = invoiceData.basePriceFormatted || basePriceNum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const gstAmountFormatted = invoiceData.gstAmountFormatted || gstAmountNum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const totalAmountFormatted = invoiceData.totalAmountFormatted || totalAmountNum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const amountInWords = invoiceData.amountInWords || numberToWordsINR(totalAmountNum);
+
   const doc = new PDFDocument({
     size: 'A4',
     margin: 45,
     info: {
-      Title: 'Tax Invoice - SP/DR/26-27/0031',
+      Title: `Tax Invoice - ${invoiceNo}`,
       Author: 'Solution Planets'
     }
   });
 
   if (res) {
-    const filename = (invoiceData.invoiceNo || 'SP-DR-26-27-0031').replace(/[\/\\]/g, '-') + '.pdf';
+    const filename = invoiceNo.replace(/[\/\\]/g, '-') + '.pdf';
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
@@ -59,26 +127,27 @@ function generateInvoicePDF(invoiceData = {}, res) {
 
   const invMetaY = 124;
   doc.fontSize(8.5).font('Helvetica')
-     .text('Invoice #: ', contentWidth + margin - 150, invMetaY, { width: 150, align: 'right', continued: true })
-     .font('Helvetica-Bold').text('SP/DR/26-27/0031');
+     .text('Invoice #: ', contentWidth + margin - 180, invMetaY, { width: 180, align: 'right', continued: true })
+     .font('Helvetica-Bold').text(invoiceNo);
 
   doc.fontSize(8.5).font('Helvetica')
-     .text('Date: 10 Sep 2026', contentWidth + margin - 150, invMetaY + 13, { width: 150, align: 'right' });
+     .text(`Date: ${invoiceDate}`, contentWidth + margin - 180, invMetaY + 13, { width: 180, align: 'right' });
 
   // 4. Bill To Section
   let billToY = 168;
   doc.fontSize(10).font('Helvetica-Bold').text('Bill To:', leftX, billToY);
   billToY += 14;
-  doc.fontSize(9.5).font('Helvetica-Bold').text(invoiceData.name || invoiceData.trustName || 'Trust Organization', leftX, billToY);
+  doc.fontSize(9.5).font('Helvetica-Bold').text(trustName, leftX, billToY);
   billToY += 13;
-  doc.fontSize(8.5).font('Helvetica')
-     .text(`Address: ${invoiceData.address || ''}`, leftX, billToY);
+  if (address && address.trim()) {
+    doc.fontSize(8.5).font('Helvetica').text(address.trim(), leftX, billToY);
+    billToY += 12;
+  }
+  doc.fontSize(8.5).font('Helvetica').text(`State/Place of Supply: ${state || 'Tamil Nadu'}`, leftX, billToY);
   billToY += 12;
-  doc.text(`State/Place of Supply: ${invoiceData.state || ''}`, leftX, billToY);
+  doc.text(`Email: ${email || ''}`, leftX, billToY);
   billToY += 12;
-  doc.text(`Email: ${invoiceData.email || ''}`, leftX, billToY);
-  billToY += 12;
-  doc.text(`Mobile: ${invoiceData.mobile || invoiceData.phone || ''}`, leftX, billToY);
+  doc.text(`Mobile: ${mobile || ''}`, leftX, billToY);
 
   // 5. Invoice Table
   const tableTop = 265;
@@ -99,7 +168,6 @@ function generateInvoicePDF(invoiceData = {}, res) {
   const x3 = x2 + colHsn;
   const x4 = x3 + colPrice;
   const x5 = x4 + colQty;
-  const x6 = x0 + tableWidth;
 
   // Table Header
   const headerHeight = 22;
@@ -135,14 +203,14 @@ function generateInvoicePDF(invoiceData = {}, res) {
   doc.text('1', x0, row1Top + 8, { width: colSr, align: 'center' });
 
   // Description text
-  doc.text('DonationReceipt.in Subscription - Base Plan', x1 + 6, row1Top + 7, { width: colDesc - 12 });
-  doc.text('Validity : 08 Aug 2026 - 07 Aug 2027', x1 + 6, row1Top + 22, { width: colDesc - 12 });
-  doc.text('Included Users : 1', x1 + 6, row1Top + 37, { width: colDesc - 12 });
+  doc.text(displayPlanName, x1 + 6, row1Top + 7, { width: colDesc - 12 });
+  doc.text(`Validity : ${validityText}`, x1 + 6, row1Top + 22, { width: colDesc - 12 });
+  doc.text(`Included Users : ${includedUsers}`, x1 + 6, row1Top + 37, { width: colDesc - 12 });
 
   doc.text('997331', x2, row1Top + 22, { width: colHsn, align: 'center' });
-  doc.text('1,200.00', x3, row1Top + 22, { width: colPrice - 6, align: 'right' });
+  doc.text(basePriceFormatted, x3, row1Top + 22, { width: colPrice - 6, align: 'right' });
   doc.text('1', x4, row1Top + 22, { width: colQty, align: 'center' });
-  doc.text('1,200.00', x5, row1Top + 22, { width: colTotal - 6, align: 'right' });
+  doc.text(basePriceFormatted, x5, row1Top + 22, { width: colTotal - 6, align: 'right' });
 
   // Subtotal Row
   const subtotalTop = row1Top + row1Height;
@@ -152,7 +220,7 @@ function generateInvoicePDF(invoiceData = {}, res) {
 
   doc.fontSize(8.5).font('Helvetica');
   doc.text('Subtotal ( INR )', x0, subtotalTop + 6, { width: x5 - x0 - 8, align: 'right' });
-  doc.text('1,200.00', x5, subtotalTop + 6, { width: colTotal - 6, align: 'right' });
+  doc.text(basePriceFormatted, x5, subtotalTop + 6, { width: colTotal - 6, align: 'right' });
 
   // IGST Row
   const igstTop = subtotalTop + subtotalHeight;
@@ -161,7 +229,7 @@ function generateInvoicePDF(invoiceData = {}, res) {
   doc.moveTo(x5, igstTop).lineTo(x5, igstTop + igstHeight).stroke('#000000');
 
   doc.text('IGST (18%)', x0, igstTop + 6, { width: x5 - x0 - 8, align: 'right' });
-  doc.text('216.00', x5, igstTop + 6, { width: colTotal - 6, align: 'right' });
+  doc.text(gstAmountFormatted, x5, igstTop + 6, { width: colTotal - 6, align: 'right' });
 
   // Amount Chargeable Row
   const totalTop = igstTop + igstHeight;
@@ -173,10 +241,10 @@ function generateInvoicePDF(invoiceData = {}, res) {
      .text('Amount Chargeable (in words):', x0, totalTop + 6, { width: x5 - x0 - 8, align: 'right' });
 
   doc.fontSize(9).font('Helvetica-Bold')
-     .text('INR One Thousand Four Hundred Sixteen Only/-', x0 + 10, totalTop + 24, { width: x5 - x0 - 20, align: 'right' });
+     .text(amountInWords, x0 + 10, totalTop + 24, { width: x5 - x0 - 20, align: 'right' });
 
   doc.fontSize(9).font('Helvetica-Bold')
-     .text('INR 1,416.00', x5 - 30, totalTop + 24, { width: colTotal + 24, align: 'right' });
+     .text(`INR ${totalAmountFormatted}`, x5 - 30, totalTop + 24, { width: colTotal + 24, align: 'right' });
 
   // 6. Footer Notes
   const footerY = totalTop + totalHeight + 35;
