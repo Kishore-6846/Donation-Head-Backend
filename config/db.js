@@ -21,11 +21,13 @@ const connectDB = async () => {
 
   try {
     const conn = await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 15000,
-      connectTimeoutMS: 10000,
-      maxPoolSize: 30,
-      minPoolSize: 5,
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 60000,
+      connectTimeoutMS: 30000,
+      maxPoolSize: 50,
+      minPoolSize: 2,
+      maxIdleTimeMS: 45000,
+      family: 4,
       heartbeatFrequencyMS: 10000,
       retryWrites: true,
       w: 'majority'

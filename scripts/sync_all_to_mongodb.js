@@ -5,7 +5,6 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const ReceiptType = require('../models/ReceiptType');
 const ReportType = require('../models/ReportType');
 const DynamicReport = require('../models/DynamicReport');
-const Report = require('../models/Report');
 const User = require('../models/User');
 const Plan = require('../models/Plan');
 const DonationReceipt = require('../models/DonationReceipt');
@@ -40,12 +39,6 @@ async function syncAll() {
   const dynReports = getCollection('dynamicReports', []);
   for (const dr of dynReports) {
     await DynamicReport.updateOne({ _id: dr._id }, { $set: dr }, { upsert: true });
-  }
-
-  // Sync Published Reports
-  const reports = getCollection('reports', []);
-  for (const r of reports) {
-    await Report.updateOne({ _id: r._id }, { $set: r }, { upsert: true });
   }
 
   const collections = await mongoose.connection.db.listCollections().toArray();

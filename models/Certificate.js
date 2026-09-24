@@ -11,4 +11,8 @@ const certificateSchema = new mongoose.Schema({
   createdBy: { type: String, default: '' }
 }, { timestamps: true, strict: false });
 
+certificateSchema.index({ trustEmail: 1, createdAt: -1 });
+certificateSchema.index({ regNo: 1 });
+certificateSchema.index({ createdBy: 1 });
+
 module.exports = mongoose.models.Certificate || mongoose.model('Certificate', certificateSchema);

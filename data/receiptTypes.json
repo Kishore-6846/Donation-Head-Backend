@@ -1,1 +1,80 @@
-[]
+[
+  {
+    "_id": "rtype_1",
+    "name": "80G Tax Exemption Receipt",
+    "code": "80G_TAX_EXEMPT",
+    "is80GEligible": true,
+    "taxSection": "Section 80G(5)(vi)",
+    "description": "Eligible for 50% tax deduction",
+    "defaultNotes": "",
+    "status": "Active",
+    "__v": 0,
+    "createdAt": "2026-09-23T07:06:10.310Z",
+    "updatedAt": "2026-09-23T07:06:10.310Z"
+  },
+  {
+    "_id": "rtype_2",
+    "name": "General / Voluntary Donation",
+    "code": "VOLUNTARY_DONATION",
+    "is80GEligible": false,
+    "taxSection": "General",
+    "description": "Unrestricted contributions",
+    "defaultNotes": "",
+    "status": "Active",
+    "__v": 0,
+    "createdAt": "2026-09-23T07:06:10.311Z",
+    "updatedAt": "2026-09-23T07:06:10.311Z"
+  },
+  {
+    "_id": "rtype_3",
+    "name": "Corpus Fund Donation",
+    "code": "CORPUS_FUND",
+    "is80GEligible": true,
+    "taxSection": "Section 11(1)(d)",
+    "description": "Capital corpus",
+    "defaultNotes": "",
+    "status": "Active",
+    "__v": 0,
+    "createdAt": "2026-09-23T07:06:10.311Z",
+    "updatedAt": "2026-09-23T07:06:10.311Z"
+  },
+  {
+    "_id": "rtype_4",
+    "name": "CSR Project Grant",
+    "code": "CSR_PROJECT",
+    "is80GEligible": true,
+    "taxSection": "Section 135 & 80G",
+    "description": "CSR grants",
+    "defaultNotes": "",
+    "status": "Active",
+    "__v": 0,
+    "createdAt": "2026-09-23T07:06:10.311Z",
+    "updatedAt": "2026-09-23T07:06:10.311Z"
+  },
+  {
+    "_id": "rtype_5",
+    "name": "In-Kind / Material Donation",
+    "code": "IN_KIND",
+    "is80GEligible": false,
+    "taxSection": "Non-Monetary",
+    "description": "In-kind donations",
+    "defaultNotes": "",
+    "status": "Active",
+    "__v": 0,
+    "createdAt": "2026-09-23T07:06:10.311Z",
+    "updatedAt": "2026-09-23T07:06:10.311Z"
+  },
+  {
+    "_id": "rtype_6",
+    "name": "Anonymous / Hundi Donation",
+    "code": "ANONYMOUS_HUNDI",
+    "is80GEligible": false,
+    "taxSection": "Section 115BBC",
+    "description": "Hundi box collections",
+    "defaultNotes": "",
+    "status": "Active",
+    "__v": 0,
+    "createdAt": "2026-09-23T07:06:10.311Z",
+    "updatedAt": "2026-09-23T07:06:10.311Z"
+  }
+]

@@ -1003,6 +1003,22 @@ router.post('/', async (req, res) => {
         trustUser = getUsers().find(u => u.email && u.email.toLowerCase() === finalTrustEmail.toLowerCase());
       }
       if (trustUser) {
+        if (!isSuperAdminCreator) {
+          const isUserExpired = Boolean(
+            trustUser.isPlanExpired ||
+            trustUser.isExpired ||
+            trustUser.status === 'Expired' ||
+            trustUser.subscriptionStatus === 'Expired' ||
+            (trustUser.planExpiresAt && new Date() > new Date(trustUser.planExpiresAt))
+          );
+          if (isUserExpired) {
+            return res.status(403).json({
+              success: false,
+              isPlanExpired: true,
+              message: 'Your subscription plan has expired. Please upgrade or renew your subscription to create new receipts.'
+            });
+          }
+        }
         if (trustUser.trustName && trustUser.trustName !== 'DONATION RECEIPT SUPER ADMIN') {
           resolvedTrustName = trustUser.trustName;
         } else if (trustUser.name && !trustUser.name.toLowerCase().includes('super') && (!trustUser.contactPerson || trustUser.name !== trustUser.contactPerson)) {

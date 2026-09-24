@@ -184,7 +184,15 @@ router.post('/login', async (req, res) => {
         receiptStartNumber: user.receiptStartNumber || '1',
         receiptWatermarkText: user.receiptWatermarkText || '',
         role: user.role,
-        isSuperAdmin: user.isSuperAdmin || false
+        isSuperAdmin: user.isSuperAdmin || false,
+        plan: user.plan || 'Standard',
+        status: user.status || 'Active',
+        createdAt: user.createdAt,
+        joinedDate: user.joinedDate || '',
+        validityDays: user.validityDays || 365,
+        planExpiresAt: user.planExpiresAt || '',
+        isPlanExpired: user.isPlanExpired || false,
+        subscriptionStatus: user.subscriptionStatus || (user.status === 'Active' ? 'Active' : user.status)
       }
     });
   } catch (error) {

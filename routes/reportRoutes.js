@@ -231,7 +231,7 @@ router.get('/10bd', async (req, res) => {
 // Detailed Receipt Report endpoint matching donationreceipt.in/trust/reports.php
 router.get('/receipts', async (req, res) => {
   try {
-    const { financialYear = '2026-2027', fromDate = '', toDate = '' } = req.query;
+    const { financialYear = '2026-2027', fromDate = '', toDate = '', donationHead = '', paymentMode = '' } = req.query;
     const { trustEmail, trustId, trustName } = extractTrustInfo(req);
     const live = await getLiveReceiptsList(trustEmail, trustId, trustName);
 
@@ -266,6 +266,16 @@ router.get('/receipts', async (req, res) => {
         if (toD && !isNaN(toD.getTime()) && itemD > toD) return false;
         return true;
       });
+    }
+
+    if (donationHead && donationHead.trim() && donationHead !== 'All' && donationHead !== 'All Donation Heads') {
+      const targetHead = donationHead.trim().toLowerCase();
+      allReceipts = allReceipts.filter(r => (r.donationHead || '').toLowerCase() === targetHead);
+    }
+
+    if (paymentMode && paymentMode.trim() && paymentMode !== 'All' && paymentMode !== 'All Payment Modes') {
+      const targetMode = paymentMode.trim().toLowerCase();
+      allReceipts = allReceipts.filter(r => (r.paymentMode || '').toLowerCase() === targetMode);
     }
 
     return res.json({
@@ -917,264 +927,6 @@ router.get('/superadmin', async (req, res) => {
 });
 
 // ==========================================
-// Custom & Published Reports with Details
-// ==========================================
-const storageService = require('../services/storageService');
-const Report = require('../models/Report');
-
-// GET all reports with details
-router.get('/records', async (req, res) => {
-  try {
-    let reports = [];
-    if (getIsConnected()) {
-      try {
-        reports = await Report.find({}).sort({ createdAt: -1 }).lean();
-      } catch (dbErr) {
-        console.warn('DB read error for reports:', dbErr.message);
-      }
-    }
-    if (!reports || reports.length === 0) {
-      reports = storageService.getCollection('reports', []);
-    }
-
-    const { trust, type, financialYear, status, search } = req.query;
-
-    if (trust && trust !== 'all') {
-      reports = reports.filter(r => 
-        !r.targetTrust || 
-        r.targetTrust === 'All Trusts' || 
-        (r.targetTrust && r.targetTrust.toLowerCase().includes(trust.toLowerCase()))
-      );
-    }
-    if (type) {
-      reports = reports.filter(r => r.reportTypeId === type || r.reportTypeName === type);
-    }
-    if (financialYear) {
-      reports = reports.filter(r => r.financialYear === financialYear);
-    }
-    if (status) {
-      reports = reports.filter(r => r.status && r.status.toLowerCase() === status.toLowerCase());
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      reports = reports.filter(r =>
-        (r.title && r.title.toLowerCase().includes(q)) ||
-        (r.reportTypeName && r.reportTypeName.toLowerCase().includes(q)) ||
-        (r.executiveSummary && r.executiveSummary.toLowerCase().includes(q)) ||
-        (r.targetTrust && r.targetTrust.toLowerCase().includes(q))
-      );
-    }
-
-    return res.json({ success: true, count: reports.length, data: reports });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// GET single report by ID
-router.get('/records/:id', async (req, res) => {
-  try {
-    let report = null;
-    if (getIsConnected()) {
-      try {
-        report = await Report.findById(req.params.id).lean();
-      } catch (dbErr) {
-        console.warn('DB read error for single report:', dbErr.message);
-      }
-    }
-    if (!report) {
-      const reports = storageService.getCollection('reports', []);
-      report = reports.find(r => r._id === req.params.id);
-    }
-    if (!report) {
-      return res.status(404).json({ success: false, message: 'Report record not found' });
-    }
-    return res.json({ success: true, data: report });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// CREATE report with details
-router.post('/records', async (req, res) => {
-  try {
-    const {
-      title,
-      reportTypeId,
-      reportTypeName,
-      targetTrust,
-      financialYear,
-      fromDate,
-      toDate,
-      totalVolume,
-      totalRecords,
-      executiveSummary,
-      keyFindings,
-      remarks,
-      status,
-      publishedToAdmin
-    } = req.body;
-
-    if (!title) {
-      return res.status(400).json({ success: false, message: 'Report title is required' });
-    }
-
-    const reportId = 'rep_' + Date.now();
-    const newReportData = {
-      _id: reportId,
-      title: title.trim(),
-      reportTypeId: reportTypeId || 'rt_custom',
-      reportTypeName: reportTypeName || 'Custom Audit Report',
-      targetTrust: targetTrust || 'All Trusts',
-      financialYear: financialYear || '2026-2027',
-      fromDate: fromDate || '',
-      toDate: toDate || '',
-      totalVolume: totalVolume !== undefined ? Number(totalVolume) : 0,
-      totalRecords: totalRecords !== undefined ? Number(totalRecords) : 0,
-      executiveSummary: executiveSummary || '',
-      keyFindings: Array.isArray(keyFindings) 
-        ? keyFindings 
-        : (keyFindings ? keyFindings.split('\n').map(s => s.trim()).filter(Boolean) : []),
-      remarks: remarks || '',
-      status: status || 'Published',
-      publishedToAdmin: publishedToAdmin !== undefined ? Boolean(publishedToAdmin) : true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    if (getIsConnected()) {
-      try {
-        await Report.create(newReportData);
-      } catch (dbErr) {
-        console.warn('DB write error for report:', dbErr.message);
-      }
-    }
-
-    const reports = storageService.getCollection('reports', []);
-    reports.unshift(newReportData);
-    storageService.saveCollection('reports', reports);
-
-    return res.status(201).json({ success: true, message: 'Report generated and published successfully', data: newReportData });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// UPDATE report with details
-router.put('/records/:id', async (req, res) => {
-  try {
-    const {
-      title,
-      reportTypeId,
-      reportTypeName,
-      targetTrust,
-      financialYear,
-      fromDate,
-      toDate,
-      totalVolume,
-      totalRecords,
-      executiveSummary,
-      keyFindings,
-      remarks,
-      status,
-      publishedToAdmin
-    } = req.body;
-
-    let updatedReport = null;
-    if (getIsConnected()) {
-      try {
-        const updateObj = { updatedAt: new Date().toISOString() };
-        if (title !== undefined) updateObj.title = title.trim();
-        if (reportTypeId !== undefined) updateObj.reportTypeId = reportTypeId;
-        if (reportTypeName !== undefined) updateObj.reportTypeName = reportTypeName;
-        if (targetTrust !== undefined) updateObj.targetTrust = targetTrust;
-        if (financialYear !== undefined) updateObj.financialYear = financialYear;
-        if (fromDate !== undefined) updateObj.fromDate = fromDate;
-        if (toDate !== undefined) updateObj.toDate = toDate;
-        if (totalVolume !== undefined) updateObj.totalVolume = Number(totalVolume);
-        if (totalRecords !== undefined) updateObj.totalRecords = Number(totalRecords);
-        if (executiveSummary !== undefined) updateObj.executiveSummary = executiveSummary;
-        if (keyFindings !== undefined) {
-          updateObj.keyFindings = Array.isArray(keyFindings) ? keyFindings : keyFindings.split('\n').map(s => s.trim()).filter(Boolean);
-        }
-        if (remarks !== undefined) updateObj.remarks = remarks;
-        if (status !== undefined) updateObj.status = status;
-        if (publishedToAdmin !== undefined) updateObj.publishedToAdmin = Boolean(publishedToAdmin);
-
-        updatedReport = await Report.findByIdAndUpdate(req.params.id, updateObj, { new: true }).lean();
-      } catch (dbErr) {
-        console.warn('DB update error for report:', dbErr.message);
-      }
-    }
-
-    const reports = storageService.getCollection('reports', []);
-    const index = reports.findIndex(r => r._id === req.params.id);
-    if (index !== -1) {
-      reports[index] = {
-        ...reports[index],
-        title: title !== undefined ? title.trim() : reports[index].title,
-        reportTypeId: reportTypeId !== undefined ? reportTypeId : reports[index].reportTypeId,
-        reportTypeName: reportTypeName !== undefined ? reportTypeName : reports[index].reportTypeName,
-        targetTrust: targetTrust !== undefined ? targetTrust : reports[index].targetTrust,
-        financialYear: financialYear !== undefined ? financialYear : reports[index].financialYear,
-        fromDate: fromDate !== undefined ? fromDate : reports[index].fromDate,
-        toDate: toDate !== undefined ? toDate : reports[index].toDate,
-        totalVolume: totalVolume !== undefined ? Number(totalVolume) : reports[index].totalVolume,
-        totalRecords: totalRecords !== undefined ? Number(totalRecords) : reports[index].totalRecords,
-        executiveSummary: executiveSummary !== undefined ? executiveSummary : reports[index].executiveSummary,
-        keyFindings: keyFindings !== undefined 
-          ? (Array.isArray(keyFindings) ? keyFindings : keyFindings.split('\n').map(s => s.trim()).filter(Boolean))
-          : reports[index].keyFindings,
-        remarks: remarks !== undefined ? remarks : reports[index].remarks,
-        status: status !== undefined ? status : reports[index].status,
-        publishedToAdmin: publishedToAdmin !== undefined ? Boolean(publishedToAdmin) : reports[index].publishedToAdmin,
-        updatedAt: new Date().toISOString()
-      };
-      storageService.saveCollection('reports', reports);
-      if (!updatedReport) updatedReport = reports[index];
-    }
-
-    if (!updatedReport) {
-      return res.status(404).json({ success: false, message: 'Report record not found' });
-    }
-
-    return res.json({ success: true, message: 'Report updated successfully', data: updatedReport });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// DELETE report
-router.delete('/records/:id', async (req, res) => {
-  try {
-    let deleted = false;
-    if (getIsConnected()) {
-      try {
-        const resDb = await Report.findByIdAndDelete(req.params.id);
-        if (resDb) deleted = true;
-      } catch (dbErr) {
-        console.warn('DB delete error for report:', dbErr.message);
-      }
-    }
-
-    let reports = storageService.getCollection('reports', []);
-    const existing = reports.find(r => r._id === req.params.id);
-    if (existing) {
-      reports = reports.filter(r => r._id !== req.params.id);
-      storageService.saveCollection('reports', reports);
-      deleted = true;
-    }
-
-    if (!deleted) {
-      return res.status(404).json({ success: false, message: 'Report record not found' });
-    }
-
-    return res.json({ success: true, message: 'Report deleted successfully' });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
 // Delegate /types route to reportTypeRoutes logic
 const reportTypeRouter = require('./reportTypeRoutes');
 router.use('/types', reportTypeRouter);

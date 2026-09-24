@@ -5,6 +5,12 @@ const { getCollection, saveCollection } = require('../services/storageService');
 const mongoose = require('mongoose');
 
 const Certificate = require('../models/Certificate');
+const {
+  compressImageString,
+  decompressImageString,
+  prepareCertificateForStorage,
+  hydrateCertificate
+} = require('../utils/imageCompressor');
 
 const getCertificatesList = () => getCollection('certificates', []);
 const saveCertificatesList = (list) => saveCollection('certificates', list);
@@ -27,7 +33,7 @@ router.get('/', async (req, res) => {
         if (search) {
           query.regNo = new RegExp(search.trim(), 'i');
         }
-        list = await Certificate.find(query).sort({ createdAt: -1 }).lean();
+        list = await Certificate.find(query).maxTimeMS(10000).sort({ createdAt: -1 }).lean();
       } catch (e) {
         console.warn('DB read error for certificates:', e.message);
       }
@@ -46,7 +52,10 @@ router.get('/', async (req, res) => {
       });
     }
 
-    return res.json({ success: true, data: list });
+    // Decompress image data losslessly for client rendering
+    const hydratedList = list.map(c => hydrateCertificate(c));
+
+    return res.json({ success: true, data: hydratedList });
   } catch (error) {
     console.error('Error fetching certificates:', error);
     return res.status(500).json({ success: false, message: error.message });
@@ -71,7 +80,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: '80G Registration Number is required' });
     }
 
-    const newCert = {
+    const rawCert = {
       _id: `cert_${Date.now()}`,
       id: Date.now(),
       regNo: regNo.trim(),
@@ -83,6 +92,9 @@ router.post('/', async (req, res) => {
       trustName: (trustName || '').trim(),
       createdBy: (createdBy || trustEmail || '').trim()
     };
+
+    // Losslessly compress image fields for database storage
+    const newCert = prepareCertificateForStorage(rawCert);
 
     if (getIsConnected()) {
       try {
@@ -97,7 +109,7 @@ router.post('/', async (req, res) => {
     fileList.unshift(newCert);
     saveCertificatesList(fileList);
 
-    return res.json({ success: true, message: 'Certificate saved successfully', data: newCert });
+    return res.json({ success: true, message: 'Certificate saved successfully', data: hydrateCertificate(newCert) });
   } catch (error) {
     console.error('Error saving certificate:', error);
     return res.status(500).json({ success: false, message: error.message });
@@ -140,7 +152,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Certificate not found' });
     }
 
-    return res.json({ success: true, data: cert });
+    return res.json({ success: true, data: hydrateCertificate(cert) });
   } catch (error) {
     console.error('Error fetching certificate:', error);
     return res.status(500).json({ success: false, message: error.message });
@@ -165,6 +177,9 @@ const handleUpdateCert = async (req, res) => {
 
     let updatedCert = null;
 
+    const compressedPage1 = page1 !== undefined ? (page1 ? compressImageString(page1) : '') : undefined;
+    const compressedPage2 = page2 !== undefined ? (page2 ? compressImageString(page2) : '') : undefined;
+
     if (getIsConnected()) {
       try {
         const orConditions = [];
@@ -187,8 +202,8 @@ const handleUpdateCert = async (req, res) => {
         if (req.body.regNo) updateFields.regNo = req.body.regNo.trim();
         if (validFrom !== undefined) updateFields.validFrom = validFrom.trim();
         if (validUpto !== undefined) updateFields.validUpto = validUpto.trim();
-        if (page1 !== undefined) updateFields.page1 = page1;
-        if (page2 !== undefined) updateFields.page2 = page2;
+        if (compressedPage1 !== undefined) updateFields.page1 = compressedPage1;
+        if (compressedPage2 !== undefined) updateFields.page2 = compressedPage2;
         if (trustEmail) updateFields.trustEmail = trustEmail.trim().toLowerCase();
         if (trustName) updateFields.trustName = trustName.trim();
         if (createdBy) updateFields.createdBy = createdBy.trim();
@@ -218,8 +233,8 @@ const handleUpdateCert = async (req, res) => {
         regNo: req.body.regNo ? req.body.regNo.trim() : fileList[foundIndex].regNo,
         validFrom: validFrom !== undefined ? validFrom.trim() : fileList[foundIndex].validFrom,
         validUpto: validUpto !== undefined ? validUpto.trim() : fileList[foundIndex].validUpto,
-        page1: page1 !== undefined ? page1 : fileList[foundIndex].page1,
-        page2: page2 !== undefined ? page2 : fileList[foundIndex].page2,
+        page1: compressedPage1 !== undefined ? compressedPage1 : fileList[foundIndex].page1,
+        page2: compressedPage2 !== undefined ? compressedPage2 : fileList[foundIndex].page2,
         trustEmail: trustEmail ? trustEmail.trim().toLowerCase() : fileList[foundIndex].trustEmail,
         trustName: trustName ? trustName.trim() : fileList[foundIndex].trustName,
         createdBy: createdBy ? createdBy.trim() : fileList[foundIndex].createdBy
@@ -229,7 +244,7 @@ const handleUpdateCert = async (req, res) => {
       }
       saveCertificatesList(fileList);
     } else if (!updatedCert) {
-      const newEntry = {
+      const rawEntry = {
         _id: id || `cert_${Date.now()}`,
         id: Date.now(),
         regNo: req.body.regNo ? req.body.regNo.trim() : '',
@@ -241,12 +256,13 @@ const handleUpdateCert = async (req, res) => {
         trustName: (trustName || '').trim(),
         createdBy: (createdBy || '').trim()
       };
+      const newEntry = prepareCertificateForStorage(rawEntry);
       fileList.unshift(newEntry);
       saveCertificatesList(fileList);
       updatedCert = newEntry;
     }
 
-    return res.json({ success: true, message: 'Certificate updated successfully', data: updatedCert });
+    return res.json({ success: true, message: 'Certificate updated successfully', data: hydrateCertificate(updatedCert) });
   } catch (error) {
     console.error('Error updating certificate:', error);
     return res.status(500).json({ success: false, message: error.message });
